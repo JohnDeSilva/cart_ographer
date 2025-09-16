@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -8,4 +10,4 @@ class LocationInput(BaseModel):
     zipcode: str
     street_name: str
     street_number: str
-    site: str
+    site: Optional[str] = None
