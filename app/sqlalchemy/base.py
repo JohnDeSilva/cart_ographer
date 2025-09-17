@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from sqlalchemy import UUID, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import Uuid
 
 
 class Base(DeclarativeBase):
@@ -16,4 +17,8 @@ class DateFields(Base):
 
 class CommonColumns(DateFields):
     __abstract__ = True
-    id: Mapped[[uuid.UUID]] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        primary_key=True,
+        default=uuid.uuid4
+    )
