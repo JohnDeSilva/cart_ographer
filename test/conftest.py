@@ -23,10 +23,9 @@ def db_session(db_engine):
     session = TestSession()
 
     yield session
-
     session.close()
-    transaction.rollback()
     connection.close()
+
 
 def override_db_session(db_session: Session):
     yield db_session

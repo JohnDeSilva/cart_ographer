@@ -1,7 +1,7 @@
 import uuid
 from enum import StrEnum, auto
-
-from sqlalchemy import ForeignKey, String
+from datetime import UTC, datetime
+from sqlalchemy import ForeignKey, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.sqlalchemy.base import CommonColumns
@@ -25,3 +25,6 @@ class Restaurant(CommonColumns):
     restaurant_type: Mapped[str] = mapped_column(String, nullable=False, default=RestaurantType.BRICK_AND_MORTAR)
     food_type: Mapped[str] = mapped_column(String, nullable=False, default=FoodType.FOOD)
     location_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(Location.id), nullable=True)
+    open_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    close_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_open: Mapped[bool] = mapped_column(default=False, nullable=False)
