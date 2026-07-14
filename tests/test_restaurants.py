@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from app.database import get_db
 
+
 def test_get_db_coverage() -> None:
     # Directly test the get_db generator to ensure coverage
     generator = get_db()
@@ -12,6 +13,7 @@ def test_get_db_coverage() -> None:
         next(generator)
     except StopIteration:
         pass
+
 
 def test_create_restaurant(client: TestClient) -> None:
     response = client.post(
@@ -31,6 +33,7 @@ def test_create_restaurant(client: TestClient) -> None:
     assert data["name"] == "Burger Joint"
     assert data["restaurant_type"] == "Brick and mortar Restaurant"
     assert data["id"] is not None
+
 
 def test_read_restaurant(client: TestClient) -> None:
     # First create
@@ -56,6 +59,7 @@ def test_read_restaurant(client: TestClient) -> None:
     read_none = client.get("/restaurants/9999")
     assert read_none.status_code == 404
     assert read_none.json()["detail"] == "Restaurant not found"
+
 
 def test_update_restaurant(client: TestClient) -> None:
     create_resp = client.post(
@@ -88,6 +92,7 @@ def test_update_restaurant(client: TestClient) -> None:
         json={"name": "Ghost Restaurant"},
     )
     assert update_none.status_code == 404
+
 
 def test_patch_restaurant_status(client: TestClient) -> None:
     create_resp = client.post(
@@ -126,6 +131,7 @@ def test_patch_restaurant_status(client: TestClient) -> None:
     )
     assert patch_none.status_code == 404
 
+
 def test_delete_restaurant(client: TestClient) -> None:
     create_resp = client.post(
         "/restaurants",
@@ -147,6 +153,7 @@ def test_delete_restaurant(client: TestClient) -> None:
     # Delete again (should be 404 now)
     del_none = client.delete(f"/restaurants/{r_id}")
     assert del_none.status_code == 404
+
 
 def test_filter_restaurants(client: TestClient) -> None:
     # Seed data
@@ -241,3 +248,82 @@ def test_filter_restaurants(client: TestClient) -> None:
     # Time: 05:00:00 -> All closed
     resp = client.get("/restaurants?is_open_at=05:00:00")
     assert len(resp.json()) == 0
+
+
+def test_user_authentication_flow(client: TestClient) -> None:
+    # Disable dependency override for authentication to test actual auth
+    from app.main import app, get_current_user, get_current_admin
+
+    # Temporarily remove dependency overrides for current_user/admin
+    orig_current_user = app.dependency_overrides.pop(get_current_user, None)
+    orig_current_admin = app.dependency_overrides.pop(get_current_admin, None)
+
+    try:
+        # 1. Accessing restaurants without token should fail
+        resp = client.get("/restaurants")
+        assert resp.status_code == 401
+
+        # 2. Signup new user
+        signup_resp = client.post(
+            "/auth/signup",
+            json={"username": "newuser", "password": "newpassword", "role": "Customer"},
+        )
+        assert signup_resp.status_code == 201
+        assert signup_resp.json()["username"] == "newuser"
+        assert signup_resp.json()["role"] == "Customer"
+
+        # 3. Login with credentials
+        login_resp = client.post(
+            "/auth/login",
+            json={"username": "newuser", "password": "newpassword"},
+        )
+        assert login_resp.status_code == 200
+        token = login_resp.json()["access_token"]
+        assert login_resp.json()["role"] == "Customer"
+
+        # 4. Access with token
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = client.get("/restaurants", headers=headers)
+        assert resp.status_code == 200
+
+        # 5. Try creating restaurant with Customer token (should fail)
+        create_resp = client.post(
+            "/restaurants",
+            headers=headers,
+            json={
+                "name": "Invalid Stand",
+                "restaurant_type": "Food Stall",
+                "location": "Nowhere",
+                "open_time": "10:00:00",
+                "close_time": "18:00:00",
+            },
+        )
+        assert create_resp.status_code == 403
+
+        # 6. Reset password
+        reset_resp = client.post(
+            "/auth/reset-password",
+            json={"username": "newuser", "new_password": "updatedpassword"},
+        )
+        assert reset_resp.status_code == 200
+
+        # 7. Login with old password (should fail)
+        bad_login = client.post(
+            "/auth/login",
+            json={"username": "newuser", "password": "newpassword"},
+        )
+        assert bad_login.status_code == 401
+
+        # 8. Login with new password
+        good_login = client.post(
+            "/auth/login",
+            json={"username": "newuser", "password": "updatedpassword"},
+        )
+        assert good_login.status_code == 200
+
+    finally:
+        # Restore overrides
+        if orig_current_user:
+            app.dependency_overrides[get_current_user] = orig_current_user
+        if orig_current_admin:
+            app.dependency_overrides[get_current_admin] = orig_current_admin

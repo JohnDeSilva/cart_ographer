@@ -5,8 +5,10 @@ description = "FastAPI backend to track restaurant information"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "bcrypt>=5.0.0",
     "fastapi>=0.110.0",
     "pydantic>=2.6.0",
+    "pyjwt>=2.13.0",
     "sqlalchemy>=2.0.0",
     "uvicorn>=0.28.0",
 ]

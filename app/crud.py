@@ -3,16 +3,61 @@ from typing import List, Optional
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from app import models, schemas
+import bcrypt
 
-def create_restaurant(db: Session, restaurant: schemas.RestaurantCreate) -> models.Restaurant:
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+    )
+
+
+def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.username == username).first()
+
+
+def create_user(db: Session, user: schemas.UserCreate) -> models.User:
+    db_user = models.User(
+        username=user.username,
+        hashed_password=hash_password(user.password),
+        role=user.role,
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
+def reset_user_password(
+    db: Session, db_user: models.User, new_password: str
+) -> models.User:
+    db_user.hashed_password = hash_password(new_password)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
+def create_restaurant(
+    db: Session, restaurant: schemas.RestaurantCreate
+) -> models.Restaurant:
     db_restaurant = models.Restaurant(**restaurant.model_dump())
     db.add(db_restaurant)
     db.commit()
     db.refresh(db_restaurant)
     return db_restaurant
 
+
 def get_restaurant(db: Session, restaurant_id: int) -> Optional[models.Restaurant]:
-    return db.query(models.Restaurant).filter(models.Restaurant.id == restaurant_id).first()
+    return (
+        db.query(models.Restaurant)
+        .filter(models.Restaurant.id == restaurant_id)
+        .first()
+    )
+
 
 def get_restaurants(
     db: Session,
@@ -58,8 +103,11 @@ def get_restaurants(
         )
     return query.offset(skip).limit(limit).all()
 
+
 def update_restaurant(
-    db: Session, db_restaurant: models.Restaurant, restaurant_update: schemas.RestaurantUpdate
+    db: Session,
+    db_restaurant: models.Restaurant,
+    restaurant_update: schemas.RestaurantUpdate,
 ) -> models.Restaurant:
     update_data = restaurant_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -68,6 +116,7 @@ def update_restaurant(
     db.refresh(db_restaurant)
     return db_restaurant
 
+
 def update_restaurant_status(
     db: Session, db_restaurant: models.Restaurant, open_status: bool
 ) -> models.Restaurant:
@@ -75,6 +124,7 @@ def update_restaurant_status(
     db.commit()
     db.refresh(db_restaurant)
     return db_restaurant
+
 
 def delete_restaurant(db: Session, db_restaurant: models.Restaurant) -> None:
     db.delete(db_restaurant)
