@@ -86,3 +86,10 @@ dmypy.json
 # Rust / Cargo
 **/target/
 
+# Node / Frontend
+node_modules/
+**/node_modules/
+web_client/dist/
+.eslintcache
+
+

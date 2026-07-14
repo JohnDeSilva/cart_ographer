@@ -58,6 +58,10 @@ setup-web:
 
 # Run web client in development mode (auto-managing backend lifetime)
 run-web:
+	@if [ ! -d "web_client/node_modules" ]; then \
+		echo "web_client/node_modules not found. Running setup-web..."; \
+		$(MAKE) setup-web; \
+	fi
 	@if ! curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
 		echo "Starting FastAPI backend in the background..."; \
 		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 & \
@@ -79,10 +83,18 @@ run-web:
 
 # Build the web client static assets
 build-web:
+	@if [ ! -d "web_client/node_modules" ]; then \
+		echo "web_client/node_modules not found. Running setup-web..."; \
+		$(MAKE) setup-web; \
+	fi
 	cd web_client && npm run build
 
 # Run web client unit tests
 test-web:
+	@if [ ! -d "web_client/node_modules" ]; then \
+		echo "web_client/node_modules not found. Running setup-web..."; \
+		$(MAKE) setup-web; \
+	fi
 	cd web_client && npm run test
 
 # Clean up build/cache artifacts
