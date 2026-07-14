@@ -1,4 +1,4 @@
-.PHONY: setup run test lint format typecheck clean coverage run-tui setup-web run-web build-web test-web
+.PHONY: setup run test lint format typecheck clean coverage run-tui setup-web run-web build-web test-web seed
 
 # Default target
 all: setup lint typecheck test
@@ -6,6 +6,10 @@ all: setup lint typecheck test
 # Install dependencies and sync virtual env
 setup:
 	uv sync
+
+# Seed demo data into the database
+seed:
+	uv run python -m app.seed_data
 
 # Run the FastAPI server in reload/development mode
 run:

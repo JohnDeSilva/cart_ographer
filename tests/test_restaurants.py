@@ -1576,3 +1576,72 @@ def test_create_access_token_default_expiry() -> None:
     token = create_access_token(data={"sub": "test"})
     payload = jwt.decode(token, "super-secret-key-for-jwt", algorithms=["HS256"])
     assert payload["sub"] == "test"
+
+
+def test_seed_demo_data_populates_database(db: Session) -> None:
+    from app.seed_data import seed_demo_data
+
+    seed_demo_data(db)
+
+    user_count = db.query(models.User).count()
+    restaurant_count = db.query(models.Restaurant).count()
+    favorite_count = db.query(models.Favorite).count()
+
+    assert user_count == 11
+    assert restaurant_count == 7
+    assert favorite_count == 3
+
+    admin_user = (
+        db.query(models.User).filter(models.User.username == "admin").first()
+    )
+    assert admin_user is not None
+    assert admin_user.role == models.UserRole.ADMIN
+
+    cust_cart = (
+        db.query(models.User).filter(models.User.username == "cust_cart").first()
+    )
+    assert cust_cart is not None
+    assert cust_cart.role == models.UserRole.CUSTOMER
+
+    rolling_bites = (
+        db.query(models.Restaurant)
+        .filter(models.Restaurant.name == "Rolling Bites")
+        .first()
+    )
+    assert rolling_bites is not None
+    assert rolling_bites.restaurant_type == models.RestaurantType.FOOD_CART
+    assert rolling_bites.cuisine_type == "Mexican"
+    assert rolling_bites.is_approved is True
+    assert rolling_bites.owner_id == cust_cart.id
+
+    pending_restaurants = (
+        db.query(models.Restaurant)
+        .filter(models.Restaurant.is_approved.is_(False))
+        .all()
+    )
+    assert len(pending_restaurants) == 2
+
+    smoke_and_wheels = (
+        db.query(models.Restaurant)
+        .filter(models.Restaurant.name == "Smoke & Wheels")
+        .first()
+    )
+    assert smoke_and_wheels is not None
+    assert smoke_and_wheels.open_time.hour == 17
+    assert smoke_and_wheels.close_time.hour == 2
+
+    consumer1 = (
+        db.query(models.User).filter(models.User.username == "consumer1").first()
+    )
+    assert consumer1 is not None
+    consumer1_favorites = (
+        db.query(models.Favorite)
+        .filter(models.Favorite.consumer_id == consumer1.id)
+        .all()
+    )
+    assert len(consumer1_favorites) == 2
+
+    # Verify idempotency
+    seed_demo_data(db)
+    assert db.query(models.User).count() == 11
+    assert db.query(models.Restaurant).count() == 7
