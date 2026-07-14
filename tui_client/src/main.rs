@@ -9,7 +9,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 mod api;
 mod ui;
 
-use api::{ApiClient, Restaurant, RestaurantCreate, RestaurantUpdate, RestaurantType, UserRole};
+use api::{ApiClient, FavoriteResponse, Restaurant, RestaurantCreate, RestaurantUpdate, RestaurantType, UserRole};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -19,32 +19,35 @@ pub enum Screen {
     Dashboard,
     AddRestaurant,
     EditRestaurant,
+    MyRestaurants,
+    FavoritesView,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Focus {
-    // Login
     LoginUsername,
     LoginPassword,
-    // Signup
     SignupUsername,
     SignupPassword,
     SignupRole,
-    // Reset
     ResetUsername,
     ResetPassword,
-    // Dashboard
     SearchInput,
     RestaurantList,
     DetailPane,
-    // Form
     FormName,
     FormType,
+    FormCuisineType,
     FormLocation,
     FormOpenTime,
     FormCloseTime,
     FormOpenStatus,
     FormDescription,
+    FormMenuItems,
+    MyRestaurantsList,
+    MyRestaurantsDetail,
+    FavoritesList,
+    FavoritesDetail,
 }
 
 pub struct App {
@@ -52,25 +55,29 @@ pub struct App {
     pub focus: Focus,
     pub api_client: ApiClient,
     pub restaurants: Vec<Restaurant>,
+    pub my_restaurants: Vec<Restaurant>,
+    pub favorites: Vec<FavoriteResponse>,
     pub selected_restaurant_index: Option<usize>,
+    pub selected_my_restaurant_index: Option<usize>,
+    pub selected_favorite_index: Option<usize>,
     pub status_message: Option<String>,
+    pub editing_restaurant_id: Option<i32>,
 
-    // Text Input buffers
     pub input_username: String,
     pub input_password: String,
     pub input_role: UserRole,
 
-    // Search query
     pub search_query: String,
 
-    // Form buffers
     pub form_name: String,
     pub form_type: RestaurantType,
+    pub form_cuisine_type: String,
     pub form_location: String,
     pub form_open_time: String,
     pub form_close_time: String,
     pub form_open_status: bool,
     pub form_description: String,
+    pub form_menu_items: String,
 }
 
 impl App {
@@ -80,19 +87,26 @@ impl App {
             focus: Focus::LoginUsername,
             api_client: ApiClient::new(base_url),
             restaurants: Vec::new(),
+            my_restaurants: Vec::new(),
+            favorites: Vec::new(),
             selected_restaurant_index: None,
+            selected_my_restaurant_index: None,
+            selected_favorite_index: None,
             status_message: None,
+            editing_restaurant_id: None,
             input_username: String::new(),
             input_password: String::new(),
             input_role: UserRole::Customer,
             search_query: String::new(),
             form_name: String::new(),
             form_type: RestaurantType::FoodStall,
+            form_cuisine_type: String::new(),
             form_location: String::new(),
             form_open_time: "08:00:00".to_string(),
             form_close_time: "22:00:00".to_string(),
             form_open_status: true,
             form_description: String::new(),
+            form_menu_items: String::new(),
         }
     }
 
@@ -128,24 +142,71 @@ impl App {
             }
         }
     }
+
+    pub async fn fetch_my_restaurants(&mut self) {
+        self.set_status("Loading your restaurants...");
+        match self.api_client.get_my_restaurants().await {
+            Ok(list) => {
+                self.my_restaurants = list;
+                if self.my_restaurants.is_empty() {
+                    self.selected_my_restaurant_index = None;
+                } else if self.selected_my_restaurant_index.is_none() {
+                    self.selected_my_restaurant_index = Some(0);
+                } else {
+                    let max_idx = self.my_restaurants.len() - 1;
+                    if let Some(ref mut idx) = self.selected_my_restaurant_index {
+                        if *idx > max_idx {
+                            *idx = max_idx;
+                        }
+                    }
+                }
+                self.clear_status();
+            }
+            Err(e) => {
+                self.set_status(&format!("Fetch error: {}", e));
+            }
+        }
+    }
+
+    pub async fn fetch_favorites(&mut self) {
+        self.set_status("Loading favorites...");
+        match self.api_client.get_favorites().await {
+            Ok(list) => {
+                self.favorites = list;
+                if self.favorites.is_empty() {
+                    self.selected_favorite_index = None;
+                } else if self.selected_favorite_index.is_none() {
+                    self.selected_favorite_index = Some(0);
+                } else {
+                    let max_idx = self.favorites.len() - 1;
+                    if let Some(ref mut idx) = self.selected_favorite_index {
+                        if *idx > max_idx {
+                            *idx = max_idx;
+                        }
+                    }
+                }
+                self.clear_status();
+            }
+            Err(e) => {
+                self.set_status(&format!("Fetch error: {}", e));
+            }
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app state
     let base_url = "http://127.0.0.1:8000";
     let mut app = App::new(base_url);
 
     let run_res = run_app(&mut terminal, &mut app).await;
 
-    // Restore terminal
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -171,18 +232,20 @@ async fn run_app<B: ratatui::backend::Backend>(
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == event::KeyEventKind::Press {
-                    // Global Exit Check
                     if app.screen == Screen::Login && key.code == KeyCode::Esc {
                         return Ok(());
                     }
 
-                    // Global Logout Check
                     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('l') {
                         app.api_client.logout();
                         app.screen = Screen::Login;
                         app.focus = Focus::LoginUsername;
                         app.input_username.clear();
                         app.input_password.clear();
+                        app.my_restaurants.clear();
+                        app.favorites.clear();
+                        app.selected_my_restaurant_index = None;
+                        app.selected_favorite_index = None;
                         app.set_status("Logged out successfully");
                         continue;
                     }
@@ -195,6 +258,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                         Screen::AddRestaurant | Screen::EditRestaurant => {
                             handle_form_keys(app, key).await
                         }
+                        Screen::MyRestaurants => handle_my_restaurants_keys(app, key).await,
+                        Screen::FavoritesView => handle_favorites_keys(app, key).await,
                     }
                 }
             }
@@ -203,7 +268,6 @@ async fn run_app<B: ratatui::backend::Backend>(
 }
 
 async fn handle_login_keys(app: &mut App, key: event::KeyEvent) {
-    // Ctrl+S to go to signup
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
         app.screen = Screen::Signup;
         app.focus = Focus::SignupUsername;
@@ -212,7 +276,6 @@ async fn handle_login_keys(app: &mut App, key: event::KeyEvent) {
         app.clear_status();
         return;
     }
-    // Ctrl+R to go to reset password
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
         app.screen = Screen::ResetPassword;
         app.focus = Focus::ResetUsername;
@@ -277,7 +340,8 @@ async fn handle_signup_keys(app: &mut App, key: event::KeyEvent) {
         KeyCode::Char(' ') if app.focus == Focus::SignupRole => {
             app.input_role = match app.input_role {
                 UserRole::Customer => UserRole::Admin,
-                UserRole::Admin => UserRole::Customer,
+                UserRole::Admin => UserRole::Consumer,
+                UserRole::Consumer => UserRole::Customer,
             };
         }
         KeyCode::Esc => {
@@ -434,17 +498,41 @@ async fn handle_dashboard_keys(app: &mut App, key: event::KeyEvent) {
                 }
             }
         }
-        // Admin commands
+        KeyCode::Char('m') if app.api_client.role == Some(UserRole::Customer) => {
+            app.screen = Screen::MyRestaurants;
+            app.focus = Focus::MyRestaurantsList;
+            app.fetch_my_restaurants().await;
+            app.clear_status();
+        }
+        KeyCode::Char('f') if app.api_client.role == Some(UserRole::Consumer) => {
+            if let Some(idx) = app.selected_restaurant_index {
+                let restaurant_id = app.restaurants.get(idx).map(|r| r.id);
+                if let Some(id) = restaurant_id {
+                    app.set_status("Adding favorite...");
+                    match app.api_client.add_favorite(id).await {
+                        Ok(_) => {
+                            app.set_status("Favorite added successfully");
+                        }
+                        Err(e) => {
+                            app.set_status(&format!("Failed to add favorite: {}", e));
+                        }
+                    }
+                }
+            } else {
+                app.set_status("Please select a restaurant to favorite");
+            }
+        }
+        KeyCode::Char('v') if app.api_client.role == Some(UserRole::Consumer) => {
+            app.screen = Screen::FavoritesView;
+            app.focus = Focus::FavoritesList;
+            app.fetch_favorites().await;
+            app.clear_status();
+        }
         KeyCode::Char('a') if app.api_client.role == Some(UserRole::Admin) => {
             app.screen = Screen::AddRestaurant;
             app.focus = Focus::FormName;
-            app.form_name.clear();
-            app.form_type = RestaurantType::FoodStall;
-            app.form_location.clear();
-            app.form_open_time = "08:00:00".to_string();
-            app.form_close_time = "22:00:00".to_string();
-            app.form_open_status = true;
-            app.form_description.clear();
+            app.editing_restaurant_id = None;
+            clear_form(app);
             app.clear_status();
         }
         KeyCode::Char('e') if app.api_client.role == Some(UserRole::Admin) => {
@@ -453,13 +541,8 @@ async fn handle_dashboard_keys(app: &mut App, key: event::KeyEvent) {
                 if let Some(r) = restaurant_info {
                     app.screen = Screen::EditRestaurant;
                     app.focus = Focus::FormName;
-                    app.form_name = r.name;
-                    app.form_type = r.restaurant_type;
-                    app.form_location = r.location;
-                    app.form_open_time = r.open_time;
-                    app.form_close_time = r.close_time;
-                    app.form_open_status = r.open_status;
-                    app.form_description = r.description.unwrap_or_default();
+                    app.editing_restaurant_id = Some(r.id);
+                    populate_form_from_restaurant(app, &r);
                     app.clear_status();
                 }
             } else {
@@ -502,8 +585,267 @@ async fn handle_dashboard_keys(app: &mut App, key: event::KeyEvent) {
                 }
             }
         }
+        KeyCode::Char('r') if app.api_client.role == Some(UserRole::Admin) => {
+            if let Some(idx) = app.selected_restaurant_index {
+                let restaurant_info = app.restaurants.get(idx).cloned();
+                if let Some(r) = restaurant_info {
+                    let new_approved = !r.is_approved;
+                    app.set_status("Updating approval status...");
+                    match app.api_client.approve_restaurant(r.id, new_approved).await {
+                        Ok(_) => {
+                            app.fetch_restaurants().await;
+                            app.set_status("Approval status updated");
+                        }
+                        Err(e) => {
+                            app.set_status(&format!("Approval update failed: {}", e));
+                        }
+                    }
+                }
+            } else {
+                app.set_status("Please select a restaurant to approve");
+            }
+        }
+        KeyCode::Char('l') if app.api_client.role == Some(UserRole::Admin) => {
+            if let Some(idx) = app.selected_restaurant_index {
+                let restaurant_info = app.restaurants.get(idx).cloned();
+                if let Some(r) = restaurant_info {
+                    if r.location_change_pending {
+                        app.set_status("Approving location change...");
+                        match app.api_client.approve_location_change(r.id, true).await {
+                            Ok(_) => {
+                                app.fetch_restaurants().await;
+                                app.set_status("Location change approved");
+                            }
+                            Err(e) => {
+                                app.set_status(&format!("Location approval failed: {}", e));
+                            }
+                        }
+                    } else {
+                        app.set_status("No pending location change for this restaurant");
+                    }
+                }
+            }
+        }
+        KeyCode::Char('L') if app.api_client.role == Some(UserRole::Admin) => {
+            if let Some(idx) = app.selected_restaurant_index {
+                let restaurant_info = app.restaurants.get(idx).cloned();
+                if let Some(r) = restaurant_info {
+                    if r.location_change_pending {
+                        app.set_status("Rejecting location change...");
+                        match app.api_client.approve_location_change(r.id, false).await {
+                            Ok(_) => {
+                                app.fetch_restaurants().await;
+                                app.set_status("Location change rejected");
+                            }
+                            Err(e) => {
+                                app.set_status(&format!("Location rejection failed: {}", e));
+                            }
+                        }
+                    } else {
+                        app.set_status("No pending location change for this restaurant");
+                    }
+                }
+            }
+        }
         _ => {}
     }
+}
+
+async fn handle_my_restaurants_keys(app: &mut App, key: event::KeyEvent) {
+    if app.focus == Focus::MyRestaurantsList {
+        match key.code {
+            KeyCode::Up => {
+                if !app.my_restaurants.is_empty() {
+                    if let Some(ref mut idx) = app.selected_my_restaurant_index {
+                        if *idx > 0 {
+                            *idx -= 1;
+                        }
+                    } else {
+                        app.selected_my_restaurant_index = Some(0);
+                    }
+                }
+                return;
+            }
+            KeyCode::Down => {
+                if !app.my_restaurants.is_empty() {
+                    if let Some(ref mut idx) = app.selected_my_restaurant_index {
+                        if *idx < app.my_restaurants.len() - 1 {
+                            *idx += 1;
+                        }
+                    } else {
+                        app.selected_my_restaurant_index = Some(0);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    match key.code {
+        KeyCode::Tab => {
+            app.focus = match app.focus {
+                Focus::MyRestaurantsList => Focus::MyRestaurantsDetail,
+                Focus::MyRestaurantsDetail => Focus::MyRestaurantsList,
+                _ => Focus::MyRestaurantsList,
+            };
+        }
+        KeyCode::Esc => {
+            app.screen = Screen::Dashboard;
+            app.focus = Focus::RestaurantList;
+            app.clear_status();
+        }
+        KeyCode::Char('a') => {
+            app.screen = Screen::AddRestaurant;
+            app.focus = Focus::FormName;
+            app.editing_restaurant_id = None;
+            clear_form(app);
+            app.clear_status();
+        }
+        KeyCode::Char('e') => {
+            if let Some(idx) = app.selected_my_restaurant_index {
+                let restaurant_info = app.my_restaurants.get(idx).cloned();
+                if let Some(r) = restaurant_info {
+                    app.screen = Screen::EditRestaurant;
+                    app.focus = Focus::FormName;
+                    app.editing_restaurant_id = Some(r.id);
+                    populate_form_from_restaurant(app, &r);
+                    app.clear_status();
+                }
+            } else {
+                app.set_status("Please select a restaurant to edit");
+            }
+        }
+        KeyCode::Char('t') => {
+            if let Some(idx) = app.selected_my_restaurant_index {
+                let status_info = app.my_restaurants.get(idx).map(|r| (r.id, r.open_status));
+                if let Some((id, open_status)) = status_info {
+                    let new_status = !open_status;
+                    app.set_status("Toggling status...");
+                    match app.api_client.update_restaurant_status(id, new_status).await {
+                        Ok(_) => {
+                            app.fetch_my_restaurants().await;
+                            app.set_status("Status toggled successfully");
+                        }
+                        Err(e) => {
+                            app.set_status(&format!("Toggle failed: {}", e));
+                        }
+                    }
+                }
+            }
+        }
+        KeyCode::Char('d') => {
+            if let Some(idx) = app.selected_my_restaurant_index {
+                let id_to_delete = app.my_restaurants.get(idx).map(|r| r.id);
+                if let Some(id) = id_to_delete {
+                    app.set_status("Deleting entry...");
+                    match app.api_client.delete_restaurant(id).await {
+                        Ok(_) => {
+                            app.selected_my_restaurant_index = None;
+                            app.fetch_my_restaurants().await;
+                            app.set_status("Restaurant deleted successfully");
+                        }
+                        Err(e) => {
+                            app.set_status(&format!("Delete failed: {}", e));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn handle_favorites_keys(app: &mut App, key: event::KeyEvent) {
+    if app.focus == Focus::FavoritesList {
+        match key.code {
+            KeyCode::Up => {
+                if !app.favorites.is_empty() {
+                    if let Some(ref mut idx) = app.selected_favorite_index {
+                        if *idx > 0 {
+                            *idx -= 1;
+                        }
+                    } else {
+                        app.selected_favorite_index = Some(0);
+                    }
+                }
+                return;
+            }
+            KeyCode::Down => {
+                if !app.favorites.is_empty() {
+                    if let Some(ref mut idx) = app.selected_favorite_index {
+                        if *idx < app.favorites.len() - 1 {
+                            *idx += 1;
+                        }
+                    } else {
+                        app.selected_favorite_index = Some(0);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    match key.code {
+        KeyCode::Tab => {
+            app.focus = match app.focus {
+                Focus::FavoritesList => Focus::FavoritesDetail,
+                Focus::FavoritesDetail => Focus::FavoritesList,
+                _ => Focus::FavoritesList,
+            };
+        }
+        KeyCode::Esc => {
+            app.screen = Screen::Dashboard;
+            app.focus = Focus::RestaurantList;
+            app.clear_status();
+        }
+        KeyCode::Char('d') => {
+            if let Some(idx) = app.selected_favorite_index {
+                let favorite_id = app.favorites.get(idx).map(|f| f.id);
+                if let Some(id) = favorite_id {
+                    app.set_status("Removing favorite...");
+                    match app.api_client.remove_favorite(id).await {
+                        Ok(_) => {
+                            app.selected_favorite_index = None;
+                            app.fetch_favorites().await;
+                            app.set_status("Favorite removed successfully");
+                        }
+                        Err(e) => {
+                            app.set_status(&format!("Remove failed: {}", e));
+                        }
+                    }
+                }
+            } else {
+                app.set_status("Please select a favorite to remove");
+            }
+        }
+        _ => {}
+    }
+}
+
+fn clear_form(app: &mut App) {
+    app.form_name.clear();
+    app.form_type = RestaurantType::FoodStall;
+    app.form_cuisine_type.clear();
+    app.form_location.clear();
+    app.form_open_time = "08:00:00".to_string();
+    app.form_close_time = "22:00:00".to_string();
+    app.form_open_status = true;
+    app.form_description.clear();
+    app.form_menu_items.clear();
+}
+
+fn populate_form_from_restaurant(app: &mut App, r: &Restaurant) {
+    app.form_name = r.name.clone();
+    app.form_type = r.restaurant_type.clone();
+    app.form_cuisine_type = r.cuisine_type.clone();
+    app.form_location = r.location.clone();
+    app.form_open_time = r.open_time.clone();
+    app.form_close_time = r.close_time.clone();
+    app.form_open_status = r.open_status;
+    app.form_description = r.description.clone().unwrap_or_default();
+    app.form_menu_items = r.menu_items.clone().unwrap_or_default();
 }
 
 async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
@@ -511,11 +853,13 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
         KeyCode::Tab => {
             app.focus = match app.focus {
                 Focus::FormName => Focus::FormType,
-                Focus::FormType => Focus::FormLocation,
+                Focus::FormType => Focus::FormCuisineType,
+                Focus::FormCuisineType => Focus::FormLocation,
                 Focus::FormLocation => Focus::FormOpenTime,
                 Focus::FormOpenTime => Focus::FormCloseTime,
                 Focus::FormCloseTime => Focus::FormOpenStatus,
                 Focus::FormOpenStatus => Focus::FormDescription,
+                Focus::FormDescription => Focus::FormMenuItems,
                 _ => Focus::FormName,
             };
         }
@@ -523,7 +867,8 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
             if app.focus == Focus::FormType {
                 app.form_type = match app.form_type {
                     RestaurantType::FoodStall => RestaurantType::FoodTruck,
-                    RestaurantType::FoodTruck => RestaurantType::BrickAndMortar,
+                    RestaurantType::FoodTruck => RestaurantType::FoodCart,
+                    RestaurantType::FoodCart => RestaurantType::BrickAndMortar,
                     RestaurantType::BrickAndMortar => RestaurantType::FoodStall,
                 };
             } else if app.focus == Focus::FormOpenStatus {
@@ -531,8 +876,10 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
             } else {
                 match app.focus {
                     Focus::FormName => app.form_name.push(' '),
+                    Focus::FormCuisineType => app.form_cuisine_type.push(' '),
                     Focus::FormLocation => app.form_location.push(' '),
                     Focus::FormDescription => app.form_description.push(' '),
+                    Focus::FormMenuItems => app.form_menu_items.push(' '),
                     _ => {}
                 }
             }
@@ -540,26 +887,40 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
         KeyCode::Char(c) => {
             match app.focus {
                 Focus::FormName => app.form_name.push(c),
+                Focus::FormCuisineType => app.form_cuisine_type.push(c),
                 Focus::FormLocation => app.form_location.push(c),
                 Focus::FormOpenTime => app.form_open_time.push(c),
                 Focus::FormCloseTime => app.form_close_time.push(c),
                 Focus::FormDescription => app.form_description.push(c),
+                Focus::FormMenuItems => app.form_menu_items.push(c),
                 _ => {}
             }
         }
         KeyCode::Backspace => {
             match app.focus {
                 Focus::FormName => { app.form_name.pop(); }
+                Focus::FormCuisineType => { app.form_cuisine_type.pop(); }
                 Focus::FormLocation => { app.form_location.pop(); }
                 Focus::FormOpenTime => { app.form_open_time.pop(); }
                 Focus::FormCloseTime => { app.form_close_time.pop(); }
                 Focus::FormDescription => { app.form_description.pop(); }
+                Focus::FormMenuItems => { app.form_menu_items.pop(); }
                 _ => {}
             }
         }
         KeyCode::Esc => {
-            app.screen = Screen::Dashboard;
-            app.focus = Focus::RestaurantList;
+            let target_screen = if app.api_client.role == Some(UserRole::Customer) {
+                Screen::MyRestaurants
+            } else {
+                Screen::Dashboard
+            };
+            app.screen = target_screen;
+            app.focus = if target_screen == Screen::MyRestaurants {
+                Focus::MyRestaurantsList
+            } else {
+                Focus::RestaurantList
+            };
+            app.editing_restaurant_id = None;
             app.clear_status();
         }
         KeyCode::Enter => {
@@ -574,24 +935,49 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
             } else {
                 Some(app.form_description.clone())
             };
+            let menu = if app.form_menu_items.trim().is_empty() {
+                None
+            } else {
+                Some(app.form_menu_items.clone())
+            };
+
+            let cuisine = app.form_cuisine_type.clone();
 
             match app.screen {
                 Screen::AddRestaurant => {
                     let r = RestaurantCreate {
                         name: app.form_name.clone(),
                         restaurant_type: app.form_type.clone(),
+                        cuisine_type: cuisine,
                         location: app.form_location.clone(),
                         open_time: app.form_open_time.clone(),
                         close_time: app.form_close_time.clone(),
                         open_status: app.form_open_status,
                         description: desc,
+                        menu_items: menu,
                     };
-                    match app.api_client.create_restaurant(&r).await {
+
+                    let is_customer = app.api_client.role == Some(UserRole::Customer);
+                    let result = if is_customer {
+                        app.api_client.submit_restaurant(&r).await
+                    } else {
+                        app.api_client.create_restaurant(&r).await
+                    };
+
+                    match result {
                         Ok(_) => {
-                            app.screen = Screen::Dashboard;
-                            app.focus = Focus::RestaurantList;
-                            app.fetch_restaurants().await;
-                            app.set_status("Restaurant added successfully");
+                            app.editing_restaurant_id = None;
+                            if is_customer {
+                                app.screen = Screen::MyRestaurants;
+                                app.focus = Focus::MyRestaurantsList;
+                                app.fetch_my_restaurants().await;
+                                app.set_status("Restaurant submitted for approval");
+                            } else {
+                                app.screen = Screen::Dashboard;
+                                app.focus = Focus::RestaurantList;
+                                app.fetch_restaurants().await;
+                                app.set_status("Restaurant added successfully");
+                            }
                         }
                         Err(e) => {
                             app.set_status(&format!("Create failed: {}", e));
@@ -599,28 +985,35 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
                     }
                 }
                 Screen::EditRestaurant => {
-                    if let Some(idx) = app.selected_restaurant_index {
-                        let id_to_update = app.restaurants.get(idx).map(|r| r.id);
-                        if let Some(id) = id_to_update {
-                            let r_update = RestaurantUpdate {
-                                name: Some(app.form_name.clone()),
-                                restaurant_type: Some(app.form_type.clone()),
-                                location: Some(app.form_location.clone()),
-                                open_time: Some(app.form_open_time.clone()),
-                                close_time: Some(app.form_close_time.clone()),
-                                open_status: Some(app.form_open_status),
-                                description: desc,
-                            };
-                            match app.api_client.update_restaurant(id, &r_update).await {
-                                Ok(_) => {
+                    if let Some(id) = app.editing_restaurant_id {
+                        let r_update = RestaurantUpdate {
+                            name: Some(app.form_name.clone()),
+                            restaurant_type: Some(app.form_type.clone()),
+                            cuisine_type: Some(cuisine),
+                            location: Some(app.form_location.clone()),
+                            open_time: Some(app.form_open_time.clone()),
+                            close_time: Some(app.form_close_time.clone()),
+                            open_status: Some(app.form_open_status),
+                            description: desc,
+                            menu_items: menu,
+                        };
+                        match app.api_client.update_restaurant(id, &r_update).await {
+                            Ok(_) => {
+                                app.editing_restaurant_id = None;
+                                let is_customer = app.api_client.role == Some(UserRole::Customer);
+                                if is_customer {
+                                    app.screen = Screen::MyRestaurants;
+                                    app.focus = Focus::MyRestaurantsList;
+                                    app.fetch_my_restaurants().await;
+                                } else {
                                     app.screen = Screen::Dashboard;
                                     app.focus = Focus::RestaurantList;
                                     app.fetch_restaurants().await;
-                                    app.set_status("Restaurant updated successfully");
                                 }
-                                Err(e) => {
-                                    app.set_status(&format!("Update failed: {}", e));
-                                }
+                                app.set_status("Restaurant updated successfully");
+                            }
+                            Err(e) => {
+                                app.set_status(&format!("Update failed: {}", e));
                             }
                         }
                     }
@@ -648,7 +1041,7 @@ mod tests {
     #[tokio::test]
     async fn test_login_input_buffering() {
         let mut app = App::new("http://localhost:8000");
-        
+
         handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).await;
         handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE)).await;
         handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)).await;
@@ -669,26 +1062,24 @@ mod tests {
     #[tokio::test]
     async fn test_screen_transitions() {
         let mut app = App::new("http://localhost:8000");
-        
-        // Press 'Ctrl+S' to go to Signup
+
         handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)).await;
         assert_eq!(app.screen, Screen::Signup);
         assert_eq!(app.focus, Focus::SignupUsername);
 
-        // Cycle focus in signup
         handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
         assert_eq!(app.focus, Focus::SignupPassword);
         handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
         assert_eq!(app.focus, Focus::SignupRole);
 
-        // Toggle role with Space
         assert_eq!(app.input_role, UserRole::Customer);
         handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
         assert_eq!(app.input_role, UserRole::Admin);
         handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_eq!(app.input_role, UserRole::Consumer);
+        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
         assert_eq!(app.input_role, UserRole::Customer);
 
-        // Back to login with Esc
         handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
         assert_eq!(app.screen, Screen::Login);
     }
@@ -698,10 +1089,112 @@ mod tests {
         let mut app = App::new("http://localhost:8000");
         app.screen = Screen::AddRestaurant;
         app.api_client.set_token("dummy".to_string(), "admin".to_string(), UserRole::Admin);
-        
+
         app.form_open_time = "08:00".to_string();
         handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
         assert_eq!(app.screen, Screen::AddRestaurant);
         assert!(app.status_message.as_ref().unwrap().contains("Validation error"));
+    }
+
+    #[tokio::test]
+    async fn test_form_type_cycling_includes_food_cart() {
+        let mut app = App::new("http://localhost:8000");
+        app.screen = Screen::AddRestaurant;
+        app.focus = Focus::FormType;
+
+        assert_eq!(app.form_type, RestaurantType::FoodStall);
+        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_eq!(app.form_type, RestaurantType::FoodTruck);
+        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_eq!(app.form_type, RestaurantType::FoodCart);
+        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_eq!(app.form_type, RestaurantType::BrickAndMortar);
+        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_eq!(app.form_type, RestaurantType::FoodStall);
+    }
+
+    #[tokio::test]
+    async fn test_form_tab_sequence_includes_new_fields() {
+        let mut app = App::new("http://localhost:8000");
+        app.screen = Screen::AddRestaurant;
+        app.focus = Focus::FormName;
+
+        let tab_sequence = [
+            Focus::FormType,
+            Focus::FormCuisineType,
+            Focus::FormLocation,
+            Focus::FormOpenTime,
+            Focus::FormCloseTime,
+            Focus::FormOpenStatus,
+            Focus::FormDescription,
+            Focus::FormMenuItems,
+            Focus::FormName,
+        ];
+
+        for expected_focus in &tab_sequence {
+            handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
+            assert_eq!(app.focus, *expected_focus);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_my_restaurants_navigation() {
+        let mut app = App::new("http://localhost:8000");
+        app.screen = Screen::MyRestaurants;
+        app.focus = Focus::MyRestaurantsList;
+
+        let r1 = Restaurant {
+            id: 1,
+            name: "Test1".to_string(),
+            restaurant_type: RestaurantType::FoodStall,
+            cuisine_type: String::new(),
+            location: "Loc1".to_string(),
+            open_time: "08:00:00".to_string(),
+            close_time: "22:00:00".to_string(),
+            open_status: true,
+            description: None,
+            menu_items: None,
+            is_approved: false,
+            owner_id: Some(1),
+            pending_location: None,
+            location_change_pending: false,
+        };
+        let r2 = Restaurant {
+            id: 2,
+            name: "Test2".to_string(),
+            restaurant_type: RestaurantType::FoodTruck,
+            cuisine_type: String::new(),
+            location: "Loc2".to_string(),
+            open_time: "09:00:00".to_string(),
+            close_time: "21:00:00".to_string(),
+            open_status: false,
+            description: None,
+            menu_items: None,
+            is_approved: false,
+            owner_id: Some(1),
+            pending_location: None,
+            location_change_pending: false,
+        };
+        app.my_restaurants = vec![r1, r2];
+
+        assert_eq!(app.selected_my_restaurant_index, None);
+        handle_my_restaurants_keys(&mut app, event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
+        assert_eq!(app.selected_my_restaurant_index, Some(0));
+
+        handle_my_restaurants_keys(&mut app, event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
+        assert_eq!(app.selected_my_restaurant_index, Some(1));
+
+        handle_my_restaurants_keys(&mut app, event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).await;
+        assert_eq!(app.selected_my_restaurant_index, Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_favorites_screen_exit() {
+        let mut app = App::new("http://localhost:8000");
+        app.screen = Screen::FavoritesView;
+        app.focus = Focus::FavoritesList;
+
+        handle_favorites_keys(&mut app, event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+        assert_eq!(app.screen, Screen::Dashboard);
     }
 }

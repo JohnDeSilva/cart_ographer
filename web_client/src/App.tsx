@@ -1,37 +1,44 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  MapPin, Clock, Search, Shield, User, Power, 
-  FileEdit, Trash2, PlusCircle, AlertCircle, 
-  ChevronRight, Sparkles, Key, CheckCircle
+import { useState, useEffect } from 'react';
+import {
+  MapPin, Clock, Search, User, Power,
+  FileEdit, Trash2, PlusCircle, AlertCircle,
+  Sparkles, CheckCircle,
+  Heart, Check, X
 } from 'lucide-react';
-import { api, Restaurant, RestaurantType, UserRole } from './api';
+import { api, Restaurant, RestaurantType, UserRole, FavoriteResponse } from './api';
 
 export default function App() {
-  const [view, setView] = useState<'login' | 'signup' | 'reset' | 'dashboard' | 'form-add' | 'form-edit'>('login');
+  const [view, setView] = useState<'login' | 'signup' | 'reset' | 'dashboard' | 'form-add' | 'form-edit' | 'customer-submissions' | 'admin-approvals' | 'consumer-favorites'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('Customer');
+  const [role, setRole] = useState<UserRole>('Consumer');
   const [authName, setAuthName] = useState<string | null>(null);
   const [authRole, setAuthRole] = useState<UserRole | null>(null);
 
-  // Error/Success status
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Dashboard state
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  // Form states
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState<RestaurantType>('Food Stall');
+  const [formCuisineType, setFormCuisineType] = useState('');
   const [formLocation, setFormLocation] = useState('');
   const [formOpenTime, setFormOpenTime] = useState('08:00:00');
   const [formCloseTime, setFormCloseTime] = useState('22:00:00');
   const [formOpenStatus, setFormOpenStatus] = useState(true);
   const [formDescription, setFormDescription] = useState('');
+  const [formMenuItems, setFormMenuItems] = useState('');
 
-  // Sync auth on mount and token changes
+  const [myRestaurants, setMyRestaurants] = useState<Restaurant[]>([]);
+
+  const [approvalRestaurants, setApprovalRestaurants] = useState<Restaurant[]>([]);
+  const [approvalLocationChanges, setApprovalLocationChanges] = useState<Restaurant[]>([]);
+
+  const [consumerFavorites, setConsumerFavorites] = useState<FavoriteResponse[]>([]);
+  const [favoriteRestaurantIds, setFavoriteRestaurantIds] = useState<Set<number>>(new Set());
+
   const checkAuth = () => {
     const token = localStorage.getItem('access_token');
     const u = localStorage.getItem('username');
@@ -53,7 +60,6 @@ export default function App() {
     return () => window.removeEventListener('auth_change', checkAuth);
   }, []);
 
-  // Fetch list of restaurants
   const fetchRestaurants = async (filter?: string) => {
     try {
       const data = await api.getRestaurants(filter);
@@ -71,6 +77,59 @@ export default function App() {
       fetchRestaurants(searchQuery);
     }
   }, [view, searchQuery]);
+
+  useEffect(() => {
+    if (view === 'dashboard' && authRole === 'Consumer') {
+      loadFavorites();
+    }
+  }, [view, authRole]);
+
+  const fetchMyRestaurants = async () => {
+    try {
+      const data = await api.getMyRestaurants();
+      setMyRestaurants(data);
+    } catch (err: any) {
+      showMsg('error', err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (view === 'customer-submissions') {
+      fetchMyRestaurants();
+    }
+  }, [view]);
+
+  const fetchApprovalsData = async () => {
+    try {
+      const allData = await api.getRestaurants();
+      setApprovalRestaurants(allData.filter(r => !r.is_approved));
+      setApprovalLocationChanges(allData.filter(r => r.location_change_pending));
+    } catch (err: any) {
+      showMsg('error', err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (view === 'admin-approvals') {
+      fetchApprovalsData();
+    }
+  }, [view]);
+
+  const loadFavorites = async () => {
+    try {
+      const favs = await api.getFavorites();
+      setConsumerFavorites(favs);
+      setFavoriteRestaurantIds(new Set(favs.map(f => f.restaurant_id)));
+    } catch {
+      // silent
+    }
+  };
+
+  useEffect(() => {
+    if (view === 'consumer-favorites') {
+      loadFavorites();
+    }
+  }, [view]);
 
   const showMsg = (type: 'success' | 'error', text: string) => {
     setStatusMsg({ type, text });
@@ -123,7 +182,11 @@ export default function App() {
   const toggleRestaurantStatus = async (r: Restaurant) => {
     try {
       await api.updateRestaurantStatus(r.id, !r.open_status);
-      fetchRestaurants(searchQuery);
+      if (view === 'customer-submissions') {
+        fetchMyRestaurants();
+      } else {
+        fetchRestaurants(searchQuery);
+      }
       showMsg('success', 'Restaurant status updated');
     } catch (err: any) {
       showMsg('error', err.message);
@@ -145,22 +208,26 @@ export default function App() {
   const openEditForm = (r: Restaurant) => {
     setFormName(r.name);
     setFormType(r.restaurant_type);
+    setFormCuisineType(r.cuisine_type);
     setFormLocation(r.location);
     setFormOpenTime(r.open_time);
     setFormCloseTime(r.close_time);
     setFormOpenStatus(r.open_status);
     setFormDescription(r.description || '');
+    setFormMenuItems(r.menu_items || '');
     setView('form-edit');
   };
 
   const openAddForm = () => {
     setFormName('');
     setFormType('Food Stall');
+    setFormCuisineType('');
     setFormLocation('');
     setFormOpenTime('08:00:00');
     setFormCloseTime('22:00:00');
     setFormOpenStatus(true);
     setFormDescription('');
+    setFormMenuItems('');
     setView('form-add');
   };
 
@@ -175,16 +242,23 @@ export default function App() {
       const payload = {
         name: formName,
         restaurant_type: formType,
+        cuisine_type: formCuisineType,
         location: formLocation,
         open_time: formOpenTime,
         close_time: formCloseTime,
         open_status: formOpenStatus,
         description: formDescription.trim() ? formDescription : undefined,
+        menu_items: formMenuItems.trim() ? formMenuItems : undefined,
       };
 
       if (view === 'form-add') {
-        await api.createRestaurant(payload);
-        showMsg('success', 'Restaurant created successfully');
+        if (authRole === 'Customer') {
+          await api.submitRestaurant(payload);
+          showMsg('success', 'Restaurant submitted for approval');
+        } else {
+          await api.createRestaurant(payload);
+          showMsg('success', 'Restaurant created successfully');
+        }
       } else if (view === 'form-edit' && selectedId) {
         await api.updateRestaurant(selectedId, payload);
         showMsg('success', 'Restaurant updated successfully');
@@ -197,11 +271,65 @@ export default function App() {
     }
   };
 
+  const handleApproveRestaurant = async (id: number) => {
+    try {
+      await api.approveRestaurant(id, true);
+      showMsg('success', 'Restaurant approved successfully');
+      fetchApprovalsData();
+    } catch (err: any) {
+      showMsg('error', err.message);
+    }
+  };
+
+  const handleApproveLocation = async (id: number, approve: boolean) => {
+    try {
+      await api.approveLocationChange(id, approve);
+      showMsg('success', approve ? 'Location change approved' : 'Location change rejected');
+      fetchApprovalsData();
+    } catch (err: any) {
+      showMsg('error', err.message);
+    }
+  };
+
+  const handleToggleFavorite = async (restaurantId: number) => {
+    try {
+      const isFavorited = favoriteRestaurantIds.has(restaurantId);
+      if (isFavorited) {
+        const fav = consumerFavorites.find(f => f.restaurant_id === restaurantId);
+        if (fav) {
+          await api.removeFavorite(fav.id);
+          showMsg('success', 'Removed from favorites');
+        }
+      } else {
+        await api.addFavorite(restaurantId);
+        showMsg('success', 'Added to favorites');
+      }
+      await loadFavorites();
+    } catch (err: any) {
+      showMsg('error', err.message);
+    }
+  };
+
+  const handleRemoveFavorite = async (favoriteId: number) => {
+    try {
+      await api.removeFavorite(favoriteId);
+      showMsg('success', 'Removed from favorites');
+      loadFavorites();
+    } catch (err: any) {
+      showMsg('error', err.message);
+    }
+  };
+
+  const navigateToDetail = (restaurantId: number) => {
+    setSelectedId(restaurantId);
+    setView('dashboard');
+  };
+
   const selectedRestaurant = restaurants.find(r => r.id === selectedId);
+  const isSelectedFavorited = selectedRestaurant ? favoriteRestaurantIds.has(selectedRestaurant.id) : false;
 
   return (
     <div className="container">
-      {/* Header */}
       <header className="app-header">
         <div className="logo">
           <Sparkles size={24} /> CART_OGRAPHER
@@ -221,6 +349,65 @@ export default function App() {
         )}
       </header>
 
+      {authName && (
+        <nav style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => { setSelectedId(null); setView('dashboard'); }}
+            className="btn btn-secondary"
+            style={{
+              width: 'auto',
+              padding: '8px 16px',
+              fontSize: '14px',
+              ...(view === 'dashboard' ? { borderColor: 'var(--primary-color)', background: 'rgba(6, 182, 212, 0.1)' } : {}),
+            }}
+          >
+            Browse
+          </button>
+          {authRole === 'Customer' && (
+            <button
+              onClick={() => { setSelectedId(null); setView('customer-submissions'); }}
+              className="btn btn-secondary"
+              style={{
+                width: 'auto',
+                padding: '8px 16px',
+                fontSize: '14px',
+                ...(view === 'customer-submissions' ? { borderColor: 'var(--primary-color)', background: 'rgba(6, 182, 212, 0.1)' } : {}),
+              }}
+            >
+              My Submissions
+            </button>
+          )}
+          {authRole === 'Admin' && (
+            <button
+              onClick={() => { setSelectedId(null); setView('admin-approvals'); }}
+              className="btn btn-secondary"
+              style={{
+                width: 'auto',
+                padding: '8px 16px',
+                fontSize: '14px',
+                ...(view === 'admin-approvals' ? { borderColor: 'var(--primary-color)', background: 'rgba(6, 182, 212, 0.1)' } : {}),
+              }}
+            >
+              Approvals
+            </button>
+          )}
+          {authRole === 'Consumer' && (
+            <button
+              onClick={() => { setSelectedId(null); setView('consumer-favorites'); }}
+              className="btn btn-secondary"
+              style={{
+                width: 'auto',
+                padding: '8px 16px',
+                fontSize: '14px',
+                ...(view === 'consumer-favorites' ? { borderColor: 'var(--primary-color)', background: 'rgba(6, 182, 212, 0.1)' } : {}),
+              }}
+            >
+              My Favorites
+            </button>
+          )}
+        </nav>
+      )}
+
       {statusMsg && (
         <div className={`status-alert ${statusMsg.type}`}>
           <AlertCircle size={16} />
@@ -228,7 +415,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Screen Views */}
       {view === 'login' && (
         <div className="auth-wrapper">
           <div className="auth-card glass-panel">
@@ -237,23 +423,23 @@ export default function App() {
             <form onSubmit={handleLogin}>
               <div className="form-group">
                 <label>Username</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  value={username} 
-                  onChange={e => setUsername(e.target.value)} 
-                  required 
+                <input
+                  type="text"
+                  className="form-control"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  required
                   placeholder="admin or customer"
                 />
               </div>
               <div className="form-group">
                 <label>Password</label>
-                <input 
-                  type="password" 
-                  className="form-control" 
-                  value={password} 
-                  onChange={e => setPassword(e.target.value)} 
-                  required 
+                <input
+                  type="password"
+                  className="form-control"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
                   placeholder="••••••••"
                 />
               </div>
@@ -275,35 +461,36 @@ export default function App() {
             <form onSubmit={handleSignup}>
               <div className="form-group">
                 <label>Username</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  value={username} 
-                  onChange={e => setUsername(e.target.value)} 
-                  required 
+                <input
+                  type="text"
+                  className="form-control"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  required
                   placeholder="Choose username"
                 />
               </div>
               <div className="form-group">
                 <label>Password</label>
-                <input 
-                  type="password" 
-                  className="form-control" 
-                  value={password} 
-                  onChange={e => setPassword(e.target.value)} 
-                  required 
+                <input
+                  type="password"
+                  className="form-control"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
                   placeholder="Choose password"
                 />
               </div>
               <div className="form-group">
                 <label>Role</label>
-                <select 
-                  className="form-control" 
-                  value={role} 
+                <select
+                  className="form-control"
+                  value={role}
                   onChange={e => setRole(e.target.value as UserRole)}
                 >
-                  <option value="Customer">Customer (Read-only)</option>
-                  <option value="Admin">Admin (CRUD access)</option>
+                  <option value="Consumer">Consumer (Browse & Favorites)</option>
+                  <option value="Customer">Customer (Restaurant Owner)</option>
+                  <option value="Admin">Admin (Full Access)</option>
                 </select>
               </div>
               <button type="submit" className="btn btn-primary">Sign Up</button>
@@ -323,23 +510,23 @@ export default function App() {
             <form onSubmit={handleResetPassword}>
               <div className="form-group">
                 <label>Target Username</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  value={username} 
-                  onChange={e => setUsername(e.target.value)} 
-                  required 
+                <input
+                  type="text"
+                  className="form-control"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  required
                   placeholder="Enter username"
                 />
               </div>
               <div className="form-group">
                 <label>New Password</label>
-                <input 
-                  type="password" 
-                  className="form-control" 
-                  value={password} 
-                  onChange={e => setPassword(e.target.value)} 
-                  required 
+                <input
+                  type="password"
+                  className="form-control"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
                   placeholder="Enter new password"
                 />
               </div>
@@ -354,23 +541,22 @@ export default function App() {
 
       {view === 'dashboard' && (
         <div className="dashboard-grid">
-          {/* Sidebar Left */}
           <div className="sidebar-panel glass-panel">
             <div className="search-box">
               <Search size={16} className="icon" />
-              <input 
-                type="text" 
-                className="form-control" 
-                placeholder="Search by name..." 
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Search by name..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
-            
+
             {authRole === 'Admin' && (
-              <button 
-                onClick={openAddForm} 
-                className="btn btn-primary" 
+              <button
+                onClick={openAddForm}
+                className="btn btn-primary"
                 style={{ marginBottom: '20px' }}
               >
                 <PlusCircle size={16} /> Add Restaurant
@@ -379,8 +565,8 @@ export default function App() {
 
             <div className="restaurant-list">
               {restaurants.map(r => (
-                <div 
-                  key={r.id} 
+                <div
+                  key={r.id}
                   className={`restaurant-item ${selectedId === r.id ? 'active' : ''}`}
                   onClick={() => setSelectedId(r.id)}
                 >
@@ -402,7 +588,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Details Card Right */}
           <div className="details-panel glass-panel">
             {selectedRestaurant ? (
               <>
@@ -411,9 +596,16 @@ export default function App() {
                     <h2>{selectedRestaurant.name}</h2>
                     <div className="type">{selectedRestaurant.restaurant_type}</div>
                   </div>
-                  <span className={`badge ${selectedRestaurant.open_status ? 'badge-open' : 'badge-closed'}`} style={{ padding: '6px 12px', fontSize: '13px' }}>
-                    {selectedRestaurant.open_status ? 'Open for business' : 'Closed'}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+                    <span className={`badge ${selectedRestaurant.open_status ? 'badge-open' : 'badge-closed'}`} style={{ padding: '6px 12px', fontSize: '13px' }}>
+                      {selectedRestaurant.open_status ? 'Open for business' : 'Closed'}
+                    </span>
+                    {!selectedRestaurant.is_approved && (
+                      <span className="badge badge-closed" style={{ padding: '6px 12px', fontSize: '13px' }}>
+                        Pending Approval
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="details-body">
@@ -421,37 +613,71 @@ export default function App() {
                     <MapPin size={16} className="icon" />
                     <span className="value">{selectedRestaurant.location}</span>
                   </div>
+                  {selectedRestaurant.pending_location && (
+                    <div className="detail-row" style={{ color: 'var(--accent-color)' }}>
+                      <MapPin size={16} className="icon" />
+                      <span className="value">Pending location: {selectedRestaurant.pending_location}</span>
+                    </div>
+                  )}
                   <div className="detail-row">
                     <Clock size={16} className="icon" />
                     <span className="value">
                       Operating Hours: {selectedRestaurant.open_time} - {selectedRestaurant.close_time}
                     </span>
                   </div>
+                  {selectedRestaurant.cuisine_type && (
+                    <div className="detail-row">
+                      <span className="value">Cuisine: {selectedRestaurant.cuisine_type}</span>
+                    </div>
+                  )}
 
                   <div className="details-description">
                     <h3>Description</h3>
                     <p>{selectedRestaurant.description || 'No description provided.'}</p>
                   </div>
 
+                  {selectedRestaurant.menu_items && (
+                    <div className="details-description">
+                      <h3>Menu Items</h3>
+                      <p>{selectedRestaurant.menu_items}</p>
+                    </div>
+                  )}
+
                   {authRole === 'Admin' && (
                     <div className="admin-actions">
-                      <button 
-                        onClick={() => openEditForm(selectedRestaurant)} 
+                      <button
+                        onClick={() => openEditForm(selectedRestaurant)}
                         className="btn btn-secondary"
                       >
                         <FileEdit size={16} /> Edit Details
                       </button>
-                      <button 
-                        onClick={() => toggleRestaurantStatus(selectedRestaurant)} 
+                      <button
+                        onClick={() => toggleRestaurantStatus(selectedRestaurant)}
                         className="btn btn-secondary"
                       >
                         <CheckCircle size={16} /> Toggle Status
                       </button>
-                      <button 
-                        onClick={() => handleDeleteRestaurant(selectedRestaurant.id)} 
+                      <button
+                        onClick={() => handleDeleteRestaurant(selectedRestaurant.id)}
                         className="btn btn-danger"
                       >
                         <Trash2 size={16} /> Delete
+                      </button>
+                    </div>
+                  )}
+
+                  {authRole === 'Consumer' && (
+                    <div className="admin-actions">
+                      <button
+                        onClick={() => handleToggleFavorite(selectedRestaurant.id)}
+                        className="btn btn-secondary"
+                      >
+                        <Heart
+                          size={16}
+                          fill={isSelectedFavorited ? 'var(--error-color)' : 'none'}
+                          color={isSelectedFavorited ? 'var(--error-color)' : undefined}
+                        />
+                        {isSelectedFavorited ? ' Remove from Favorites' : ' Add to Favorites'}
                       </button>
                     </div>
                   )}
@@ -468,6 +694,227 @@ export default function App() {
         </div>
       )}
 
+      {view === 'customer-submissions' && (
+        <div className="form-panel glass-panel" style={{ maxWidth: '900px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <h2 style={{ margin: 0, border: 'none', padding: 0 }}>My Submissions</h2>
+            <button onClick={openAddForm} className="btn btn-primary" style={{ width: 'auto', padding: '10px 20px' }}>
+              <PlusCircle size={16} /> Submit New Restaurant
+            </button>
+          </div>
+
+          {myRestaurants.length === 0 ? (
+            <div className="empty-state">
+              <MapPin size={48} className="icon" />
+              <h2>No Submissions Yet</h2>
+              <span>Submit your first restaurant for approval.</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {myRestaurants.map(r => (
+                <div
+                  key={r.id}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '10px',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid var(--panel-border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onClick={() => navigateToDetail(r.id)}
+                  onMouseOver={e => (e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.4)')}
+                  onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--panel-border)')}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{r.name}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span>{r.restaurant_type}</span>
+                      <span>•</span>
+                      <span className={`badge ${r.is_approved ? 'badge-open' : 'badge-closed'}`} style={{ fontSize: '10px' }}>
+                        {r.is_approved ? 'Approved' : 'Pending'}
+                      </span>
+                      <span>•</span>
+                      <span className={`badge ${r.open_status ? 'badge-open' : 'badge-closed'}`} style={{ fontSize: '10px' }}>
+                        {r.open_status ? 'Open' : 'Closed'}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => openEditForm(r)}
+                      className="btn btn-secondary"
+                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px' }}
+                    >
+                      <FileEdit size={12} /> Edit
+                    </button>
+                    <button
+                      onClick={() => toggleRestaurantStatus(r)}
+                      className="btn btn-secondary"
+                      style={{ width: 'auto', padding: '6px 12px', fontSize: '12px' }}
+                    >
+                      <CheckCircle size={12} /> Toggle
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === 'admin-approvals' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div className="form-panel glass-panel" style={{ maxWidth: '900px' }}>
+            <h2 style={{ margin: 0, border: 'none', padding: 0, marginBottom: '20px' }}>Pending Restaurant Approvals</h2>
+            {approvalRestaurants.length === 0 ? (
+              <div className="empty-state">
+                <CheckCircle size={48} className="icon" />
+                <span>All restaurants have been approved.</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {approvalRestaurants.map(r => (
+                  <div
+                    key={r.id}
+                    style={{
+                      padding: '16px',
+                      borderRadius: '10px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--panel-border)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{r.name}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {r.restaurant_type} • {r.location}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleApproveRestaurant(r.id)}
+                      className="btn btn-primary"
+                      style={{ width: 'auto', padding: '8px 20px', fontSize: '13px' }}
+                    >
+                      <Check size={14} /> Approve
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="form-panel glass-panel" style={{ maxWidth: '900px' }}>
+            <h2 style={{ margin: 0, border: 'none', padding: 0, marginBottom: '20px' }}>Pending Location Changes</h2>
+            {approvalLocationChanges.length === 0 ? (
+              <div className="empty-state">
+                <MapPin size={48} className="icon" />
+                <span>No pending location changes.</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {approvalLocationChanges.map(r => (
+                  <div
+                    key={r.id}
+                    style={{
+                      padding: '16px',
+                      borderRadius: '10px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--panel-border)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{r.name}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>
+                        Current: {r.location}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--accent-color)' }}>
+                        Proposed: {r.pending_location}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => handleApproveLocation(r.id, true)}
+                        className="btn btn-primary"
+                        style={{ width: 'auto', padding: '8px 20px', fontSize: '13px' }}
+                      >
+                        <Check size={14} /> Approve
+                      </button>
+                      <button
+                        onClick={() => handleApproveLocation(r.id, false)}
+                        className="btn btn-danger"
+                        style={{ width: 'auto', padding: '8px 20px', fontSize: '13px' }}
+                      >
+                        <X size={14} /> Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'consumer-favorites' && (
+        <div className="form-panel glass-panel" style={{ maxWidth: '900px' }}>
+          <h2 style={{ margin: 0, border: 'none', padding: 0, marginBottom: '24px' }}>My Favorites</h2>
+          {consumerFavorites.length === 0 ? (
+            <div className="empty-state">
+              <Heart size={48} className="icon" />
+              <h2>No Favorites Yet</h2>
+              <span>Browse restaurants and add your favorites.</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {consumerFavorites.map(fav => (
+                <div
+                  key={fav.id}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '10px',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid var(--panel-border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onClick={() => fav.restaurant && navigateToDetail(fav.restaurant_id)}
+                  onMouseOver={e => (e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.4)')}
+                  onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--panel-border)')}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>
+                      {fav.restaurant ? fav.restaurant.name : `Restaurant #${fav.restaurant_id}`}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {fav.restaurant ? `${fav.restaurant.restaurant_type}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleRemoveFavorite(fav.id); }}
+                    className="btn btn-danger"
+                    style={{ width: 'auto', padding: '6px 12px', fontSize: '12px' }}
+                  >
+                    <X size={12} /> Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {(view === 'form-add' || view === 'form-edit') && (
         <div className="form-panel glass-panel">
           <h2>{view === 'form-add' ? 'Create Restaurant Entry' : 'Update Restaurant Details'}</h2>
@@ -475,34 +922,52 @@ export default function App() {
             <div className="form-grid">
               <div className="form-group form-span-2">
                 <label>Restaurant Name</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
+                <input
+                  type="text"
+                  className="form-control"
                   value={formName}
                   onChange={e => setFormName(e.target.value)}
                   required
+                  disabled={view === 'form-edit' && authRole === 'Customer'}
                   placeholder="e.g. Gourmet Burger Corner"
                 />
+                {authRole === 'Customer' && view === 'form-edit' && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    Name cannot be changed after submission.
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
                 <label>Restaurant Type</label>
-                <select 
+                <select
                   className="form-control"
                   value={formType}
                   onChange={e => setFormType(e.target.value as RestaurantType)}
                 >
                   <option value="Food Stall">Food Stall</option>
                   <option value="Food Truck">Food Truck</option>
+                  <option value="Food Cart">Food Cart</option>
                   <option value="Brick and mortar Restaurant">Brick & mortar Restaurant</option>
                 </select>
               </div>
 
               <div className="form-group">
+                <label>Cuisine Type</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={formCuisineType}
+                  onChange={e => setFormCuisineType(e.target.value)}
+                  placeholder="e.g. Italian, Mexican, Japanese"
+                />
+              </div>
+
+              <div className="form-group form-span-2">
                 <label>Location Address</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
+                <input
+                  type="text"
+                  className="form-control"
                   value={formLocation}
                   onChange={e => setFormLocation(e.target.value)}
                   required
@@ -512,9 +977,9 @@ export default function App() {
 
               <div className="form-group">
                 <label>Open Time (HH:MM:SS)</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
+                <input
+                  type="text"
+                  className="form-control"
                   value={formOpenTime}
                   onChange={e => setFormOpenTime(e.target.value)}
                   required
@@ -523,9 +988,9 @@ export default function App() {
 
               <div className="form-group">
                 <label>Close Time (HH:MM:SS)</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
+                <input
+                  type="text"
+                  className="form-control"
                   value={formCloseTime}
                   onChange={e => setFormCloseTime(e.target.value)}
                   required
@@ -534,8 +999,8 @@ export default function App() {
 
               <div className="form-group form-span-2">
                 <div className="checkbox-group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     id="openStatusCheckbox"
                     checked={formOpenStatus}
                     onChange={e => setFormOpenStatus(e.target.checked)}
@@ -548,12 +1013,23 @@ export default function App() {
 
               <div className="form-group form-span-2">
                 <label>Description Details</label>
-                <textarea 
-                  className="form-control" 
-                  rows={4}
+                <textarea
+                  className="form-control"
+                  rows={3}
                   value={formDescription}
                   onChange={e => setFormDescription(e.target.value)}
                   placeholder="Add details, menu highlights, specials..."
+                />
+              </div>
+
+              <div className="form-group form-span-2">
+                <label>Menu Items</label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  value={formMenuItems}
+                  onChange={e => setFormMenuItems(e.target.value)}
+                  placeholder="List menu items, separated by commas"
                 />
               </div>
             </div>
@@ -562,10 +1038,10 @@ export default function App() {
               <button type="submit" className="btn btn-primary" style={{ width: 'auto', padding: '12px 32px' }}>
                 Save Changes
               </button>
-              <button 
-                type="button" 
-                onClick={() => setView('dashboard')} 
-                className="btn btn-secondary" 
+              <button
+                type="button"
+                onClick={() => setView('dashboard')}
+                className="btn btn-secondary"
                 style={{ width: 'auto', padding: '12px 32px' }}
               >
                 Cancel

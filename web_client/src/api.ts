@@ -1,36 +1,65 @@
-export type RestaurantType = 'Food Stall' | 'Food Truck' | 'Brick and mortar Restaurant';
+export type RestaurantType = 'Food Stall' | 'Food Truck' | 'Brick and mortar Restaurant' | 'Food Cart';
 
-export type UserRole = 'Admin' | 'Customer';
+export type UserRole = 'Admin' | 'Customer' | 'Consumer';
 
 export interface Restaurant {
   id: number;
   name: string;
   restaurant_type: RestaurantType;
+  cuisine_type: string;
   location: string;
   open_time: string;
   close_time: string;
   open_status: boolean;
   description?: string;
+  menu_items?: string;
+  is_approved: boolean;
+  owner_id?: number;
+  pending_location?: string;
+  location_change_pending: boolean;
 }
 
 export interface RestaurantCreate {
   name: string;
   restaurant_type: RestaurantType;
+  cuisine_type: string;
   location: string;
   open_time: string;
   close_time: string;
   open_status: boolean;
   description?: string;
+  menu_items?: string;
+}
+
+export interface RestaurantSubmit {
+  name: string;
+  restaurant_type: RestaurantType;
+  cuisine_type: string;
+  location: string;
+  open_time: string;
+  close_time: string;
+  open_status: boolean;
+  description?: string;
+  menu_items?: string;
 }
 
 export interface RestaurantUpdate {
   name?: string;
   restaurant_type?: RestaurantType;
+  cuisine_type?: string;
   location?: string;
   open_time?: string;
   close_time?: string;
   open_status?: boolean;
   description?: string;
+  menu_items?: string;
+}
+
+export interface FavoriteResponse {
+  id: number;
+  consumer_id: number;
+  restaurant_id: number;
+  restaurant?: Restaurant;
 }
 
 const BASE_URL = 'http://localhost:8000';
@@ -92,7 +121,7 @@ class ApiClient {
     return res;
   }
 
-  signup(username: string, password: string, role: UserRole = 'Customer'): Promise<{ id: number; username: string; role: UserRole }> {
+  signup(username: string, password: string, role: UserRole = 'Consumer'): Promise<{ id: number; username: string; role: UserRole }> {
     return this.request('/auth/signup', {
       method: 'POST',
       body: JSON.stringify({ username, password, role }),
@@ -123,6 +152,17 @@ class ApiClient {
     });
   }
 
+  submitRestaurant(restaurant: RestaurantSubmit): Promise<Restaurant> {
+    return this.request<Restaurant>('/restaurants/submit', {
+      method: 'POST',
+      body: JSON.stringify(restaurant),
+    });
+  }
+
+  getMyRestaurants(): Promise<Restaurant[]> {
+    return this.request<Restaurant[]>('/me/restaurants');
+  }
+
   updateRestaurant(id: number, restaurant: RestaurantUpdate): Promise<Restaurant> {
     return this.request<Restaurant>(`/restaurants/${id}`, {
       method: 'PUT',
@@ -141,6 +181,37 @@ class ApiClient {
     return this.request<void>(`/restaurants/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  approveRestaurant(id: number, isApproved: boolean): Promise<Restaurant> {
+    return this.request<Restaurant>(`/restaurants/${id}/approve`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_approved: isApproved }),
+    });
+  }
+
+  approveLocationChange(id: number, approve: boolean): Promise<Restaurant> {
+    return this.request<Restaurant>(`/restaurants/${id}/approve-location`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approve }),
+    });
+  }
+
+  addFavorite(restaurantId: number): Promise<FavoriteResponse> {
+    return this.request<FavoriteResponse>('/favorites', {
+      method: 'POST',
+      body: JSON.stringify({ restaurant_id: restaurantId }),
+    });
+  }
+
+  removeFavorite(favoriteId: number): Promise<void> {
+    return this.request<void>(`/favorites/${favoriteId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  getFavorites(): Promise<FavoriteResponse[]> {
+    return this.request<FavoriteResponse[]>('/favorites');
   }
 }
 
