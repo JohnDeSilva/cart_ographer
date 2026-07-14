@@ -6,9 +6,10 @@ import {
   Heart, Check, X
 } from 'lucide-react';
 import { api, Restaurant, RestaurantType, UserRole, FavoriteResponse } from './api';
+import MapView from './MapView';
 
 export default function App() {
-  const [view, setView] = useState<'login' | 'signup' | 'reset' | 'dashboard' | 'form-add' | 'form-edit' | 'customer-submissions' | 'admin-approvals' | 'consumer-favorites'>('login');
+  const [view, setView] = useState<'login' | 'signup' | 'reset' | 'dashboard' | 'map' | 'form-add' | 'form-edit' | 'customer-submissions' | 'admin-approvals' | 'consumer-favorites'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('Consumer');
@@ -30,6 +31,18 @@ export default function App() {
   const [formOpenStatus, setFormOpenStatus] = useState(true);
   const [formDescription, setFormDescription] = useState('');
   const [formMenuItems, setFormMenuItems] = useState('');
+  const [formLocDescription, setFormLocDescription] = useState('');
+  const [formLocLat, setFormLocLat] = useState('');
+  const [formLocLng, setFormLocLng] = useState('');
+  const [formLocAddress, setFormLocAddress] = useState('');
+  const [formLocCity, setFormLocCity] = useState('');
+  const [formLocState, setFormLocState] = useState('');
+  const [formLocZip, setFormLocZip] = useState('');
+  const [formLocRoad1, setFormLocRoad1] = useState('');
+  const [formLocRoad2, setFormLocRoad2] = useState('');
+  const [formLocVenue, setFormLocVenue] = useState('');
+  const [formLocStall, setFormLocStall] = useState('');
+  const [formLocLot, setFormLocLot] = useState('');
 
   const [myRestaurants, setMyRestaurants] = useState<Restaurant[]>([]);
 
@@ -46,7 +59,7 @@ export default function App() {
     if (token && u && r) {
       setAuthName(u);
       setAuthRole(r);
-      setView('dashboard');
+      setView(r === 'Customer' ? 'customer-submissions' : r === 'Consumer' ? 'map' : 'dashboard');
     } else {
       setAuthName(null);
       setAuthRole(null);
@@ -73,7 +86,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (view === 'dashboard') {
+    if (view === 'dashboard' || view === 'map') {
       fetchRestaurants(searchQuery);
     }
   }, [view, searchQuery]);
@@ -209,12 +222,24 @@ export default function App() {
     setFormName(r.name);
     setFormType(r.restaurant_type);
     setFormCuisineType(r.cuisine_type);
-    setFormLocation(r.location);
+    setFormLocation(r.location.formatted);
     setFormOpenTime(r.open_time);
     setFormCloseTime(r.close_time);
     setFormOpenStatus(r.open_status);
     setFormDescription(r.description || '');
     setFormMenuItems(r.menu_items || '');
+    setFormLocDescription(r.location.description || '');
+    setFormLocLat(r.location.lat !== undefined && r.location.lat !== null ? String(r.location.lat) : '');
+    setFormLocLng(r.location.lng !== undefined && r.location.lng !== null ? String(r.location.lng) : '');
+    setFormLocAddress(r.location.address || '');
+    setFormLocCity(r.location.city || '');
+    setFormLocState(r.location.state || '');
+    setFormLocZip(r.location.zip_code || '');
+    setFormLocRoad1(r.location.road_1 || '');
+    setFormLocRoad2(r.location.road_2 || '');
+    setFormLocVenue(r.location.venue_name || '');
+    setFormLocStall(r.location.stall_number || '');
+    setFormLocLot(r.location.lot_name || '');
     setView('form-edit');
   };
 
@@ -228,6 +253,18 @@ export default function App() {
     setFormOpenStatus(true);
     setFormDescription('');
     setFormMenuItems('');
+    setFormLocDescription('');
+    setFormLocLat('');
+    setFormLocLng('');
+    setFormLocAddress('');
+    setFormLocCity('');
+    setFormLocState('');
+    setFormLocZip('');
+    setFormLocRoad1('');
+    setFormLocRoad2('');
+    setFormLocVenue('');
+    setFormLocStall('');
+    setFormLocLot('');
     setView('form-add');
   };
 
@@ -238,29 +275,75 @@ export default function App() {
       return;
     }
 
-    try {
-      const payload = {
-        name: formName,
-        restaurant_type: formType,
-        cuisine_type: formCuisineType,
-        location: formLocation,
-        open_time: formOpenTime,
-        close_time: formCloseTime,
-        open_status: formOpenStatus,
-        description: formDescription.trim() ? formDescription : undefined,
-        menu_items: formMenuItems.trim() ? formMenuItems : undefined,
+    const buildLocationPayload = (isCreate: boolean) => {
+      const locType = formType === 'Brick and mortar Restaurant' ? 'street_address' :
+        formType === 'Food Cart' ? 'food_court' :
+        formType === 'Food Truck' ? 'gps' :
+        formType === 'Food Stall' ? 'intersection' : 'other';
+      const base: any = {
+        location_type: locType,
+        description: formLocation || undefined,
+        lat: formLocLat ? parseFloat(formLocLat) : undefined,
+        lng: formLocLng ? parseFloat(formLocLng) : undefined,
+        address: formLocAddress || undefined,
+        city: formLocCity || undefined,
+        state: formLocState || undefined,
+        zip_code: formLocZip || undefined,
+        road_1: formLocRoad1 || undefined,
+        road_2: formLocRoad2 || undefined,
+        venue_name: formLocVenue || undefined,
+        stall_number: formLocStall || undefined,
+        lot_name: formLocLot || undefined,
       };
+      if (!isCreate) delete (base as any).location_type;
+      return base;
+    };
 
-      if (view === 'form-add') {
+    try {
+      const isAdd = view === 'form-add';
+      const locPayload = buildLocationPayload(isAdd);
+      const { location_type, ...locUpdatePayload } = locPayload;
+
+      if (isAdd) {
         if (authRole === 'Customer') {
-          await api.submitRestaurant(payload);
+          await api.submitRestaurant({
+            name: formName,
+            restaurant_type: formType,
+            cuisine_type: formCuisineType,
+            location: locPayload,
+            open_time: formOpenTime,
+            close_time: formCloseTime,
+            open_status: formOpenStatus,
+            description: formDescription.trim() ? formDescription : undefined,
+            menu_items: formMenuItems.trim() ? formMenuItems : undefined,
+          });
           showMsg('success', 'Restaurant submitted for approval');
         } else {
-          await api.createRestaurant(payload);
+          await api.createRestaurant({
+            name: formName,
+            restaurant_type: formType,
+            cuisine_type: formCuisineType,
+            location: locPayload,
+            open_time: formOpenTime,
+            close_time: formCloseTime,
+            open_status: formOpenStatus,
+            description: formDescription.trim() ? formDescription : undefined,
+            menu_items: formMenuItems.trim() ? formMenuItems : undefined,
+          });
           showMsg('success', 'Restaurant created successfully');
         }
       } else if (view === 'form-edit' && selectedId) {
-        await api.updateRestaurant(selectedId, payload);
+        await api.updateRestaurant(selectedId, {
+          name: formName,
+          restaurant_type: formType,
+          cuisine_type: formCuisineType,
+          open_time: formOpenTime,
+          close_time: formCloseTime,
+          open_status: formOpenStatus,
+          description: formDescription.trim() ? formDescription : undefined,
+          menu_items: formMenuItems.trim() ? formMenuItems : undefined,
+          location: locUpdatePayload,
+        });
         showMsg('success', 'Restaurant updated successfully');
       }
 
@@ -392,18 +475,32 @@ export default function App() {
             </button>
           )}
           {authRole === 'Consumer' && (
-            <button
-              onClick={() => { setSelectedId(null); setView('consumer-favorites'); }}
-              className="btn btn-secondary"
-              style={{
-                width: 'auto',
-                padding: '8px 16px',
-                fontSize: '14px',
-                ...(view === 'consumer-favorites' ? { borderColor: 'var(--primary-color)', background: 'rgba(6, 182, 212, 0.1)' } : {}),
-              }}
-            >
-              My Favorites
-            </button>
+            <>
+              <button
+                onClick={() => { setSelectedId(null); setView('map'); }}
+                className="btn btn-secondary"
+                style={{
+                  width: 'auto',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  ...(view === 'map' ? { borderColor: 'var(--primary-color)', background: 'rgba(6, 182, 212, 0.1)' } : {}),
+                }}
+              >
+                Map
+              </button>
+              <button
+                onClick={() => { setSelectedId(null); setView('consumer-favorites'); }}
+                className="btn btn-secondary"
+                style={{
+                  width: 'auto',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  ...(view === 'consumer-favorites' ? { borderColor: 'var(--primary-color)', background: 'rgba(6, 182, 212, 0.1)' } : {}),
+                }}
+              >
+                My Favorites
+              </button>
+            </>
           )}
         </nav>
       )}
@@ -609,16 +706,64 @@ export default function App() {
                 </div>
 
                 <div className="details-body">
-                  <div className="detail-row">
-                    <MapPin size={16} className="icon" />
-                    <span className="value">{selectedRestaurant.location}</span>
-                  </div>
-                  {selectedRestaurant.pending_location && (
-                    <div className="detail-row" style={{ color: 'var(--accent-color)' }}>
-                      <MapPin size={16} className="icon" />
-                      <span className="value">Pending location: {selectedRestaurant.pending_location}</span>
-                    </div>
-                  )}
+                  {(() => {
+                    const loc = selectedRestaurant.location;
+                    const rows: JSX.Element[] = [];
+                    rows.push(
+                      <div className="detail-row" key="loc-type">
+                        <MapPin size={16} className="icon" />
+                        <span className="value">
+                          {loc.location_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                          {loc.formatted ? ` — ${loc.formatted}` : ''}
+                        </span>
+                      </div>
+                    );
+                    if (loc.description) rows.push(
+                      <div className="detail-row" key="loc-desc" style={{ paddingLeft: '24px' }}>
+                        <span className="value" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{loc.description}</span>
+                      </div>
+                    );
+                    if (loc.address) rows.push(
+                      <div className="detail-row" key="loc-addr" style={{ paddingLeft: '24px' }}>
+                        <span className="value">{loc.address}{loc.city ? `, ${loc.city}` : ''}{loc.state ? `, ${loc.state}` : ''}{loc.zip_code ? ` ${loc.zip_code}` : ''}</span>
+                      </div>
+                    );
+                    if (loc.road_1) rows.push(
+                      <div className="detail-row" key="loc-int" style={{ paddingLeft: '24px' }}>
+                        <span className="value">{loc.road_1} & {loc.road_2}</span>
+                      </div>
+                    );
+                    if (loc.lat !== undefined && loc.lat !== null) rows.push(
+                      <div className="detail-row" key="loc-gps" style={{ paddingLeft: '24px' }}>
+                        <span className="value">{loc.lat?.toFixed(4)}, {loc.lng?.toFixed(4)}</span>
+                      </div>
+                    );
+                    if (loc.venue_name) rows.push(
+                      <div className="detail-row" key="loc-venue" style={{ paddingLeft: '24px' }}>
+                        <span className="value">{loc.venue_name}{loc.stall_number ? `, Stall ${loc.stall_number}` : ''}</span>
+                      </div>
+                    );
+                    if (loc.lot_name) rows.push(
+                      <div className="detail-row" key="loc-lot" style={{ paddingLeft: '24px' }}>
+                        <span className="value">Lot: {loc.lot_name}</span>
+                      </div>
+                    );
+                    if (selectedRestaurant.pending_location) {
+                      const ploc = selectedRestaurant.pending_location;
+                      rows.push(
+                        <div className="detail-row" key="pending-header" style={{ color: 'var(--accent-color)', marginTop: '8px' }}>
+                          <MapPin size={16} className="icon" />
+                          <span className="value">Pending location change</span>
+                        </div>
+                      );
+                      rows.push(
+                        <div className="detail-row" key="pending-val" style={{ color: 'var(--accent-color)', paddingLeft: '24px' }}>
+                          <span className="value">{ploc.formatted}</span>
+                        </div>
+                      );
+                    }
+                    return rows;
+                  })()}
                   <div className="detail-row">
                     <Clock size={16} className="icon" />
                     <span className="value">
@@ -793,7 +938,7 @@ export default function App() {
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{r.name}</div>
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {r.restaurant_type} • {r.location}
+                        {r.restaurant_type} • {r.location.formatted}
                       </div>
                     </div>
                     <button
@@ -834,10 +979,10 @@ export default function App() {
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{r.name}</div>
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>
-                        Current: {r.location}
+                        Current: {r.location.formatted}
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--accent-color)' }}>
-                        Proposed: {r.pending_location}
+                        Proposed: {r.pending_location?.formatted}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
@@ -915,6 +1060,12 @@ export default function App() {
         </div>
       )}
 
+      {view === 'map' && (
+        <div style={{ width: '100%', flex: 1, minHeight: 0 }}>
+          <MapView restaurants={restaurants} />
+        </div>
+      )}
+
       {(view === 'form-add' || view === 'form-edit') && (
         <div className="form-panel glass-panel">
           <h2>{view === 'form-add' ? 'Create Restaurant Entry' : 'Update Restaurant Details'}</h2>
@@ -963,16 +1114,128 @@ export default function App() {
                 />
               </div>
 
-              <div className="form-group form-span-2">
-                <label>Location Address</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={formLocation}
-                  onChange={e => setFormLocation(e.target.value)}
-                  required
-                  placeholder="e.g. 5th Ave Street Stall 4"
-                />
+              <div className="form-group form-span-2" style={{ border: '1px solid var(--panel-border)', borderRadius: '10px', padding: '16px', marginBottom: '8px' }}>
+                <label style={{ fontWeight: 600, marginBottom: '12px', display: 'block' }}>Location Details</label>
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <label>Description (free-form)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocation}
+                    onChange={e => setFormLocation(e.target.value)}
+                    placeholder="e.g. 5th Ave Street Stall 4"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Latitude</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocLat}
+                    onChange={e => setFormLocLat(e.target.value)}
+                    placeholder="e.g. 45.5152"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Longitude</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocLng}
+                    onChange={e => setFormLocLng(e.target.value)}
+                    placeholder="e.g. -122.6784"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Street Address</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocAddress}
+                    onChange={e => setFormLocAddress(e.target.value)}
+                    placeholder="e.g. 123 Main St"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>City</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocCity}
+                    onChange={e => setFormLocCity(e.target.value)}
+                    placeholder="e.g. Portland"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>State</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocState}
+                    onChange={e => setFormLocState(e.target.value)}
+                    placeholder="e.g. OR"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>ZIP Code</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocZip}
+                    onChange={e => setFormLocZip(e.target.value)}
+                    placeholder="e.g. 97201"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Intersection — Road 1</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocRoad1}
+                    onChange={e => setFormLocRoad1(e.target.value)}
+                    placeholder="e.g. 5th Ave"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Intersection — Road 2</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocRoad2}
+                    onChange={e => setFormLocRoad2(e.target.value)}
+                    placeholder="e.g. Stark St"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Venue / Mall Name</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocVenue}
+                    onChange={e => setFormLocVenue(e.target.value)}
+                    placeholder="e.g. Portland Food Hall"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Stall / Cart Number</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocStall}
+                    onChange={e => setFormLocStall(e.target.value)}
+                    placeholder="e.g. Stall 7"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Parking Lot Name</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={formLocLot}
+                    onChange={e => setFormLocLot(e.target.value)}
+                    placeholder="e.g. Lot A"
+                  />
+                </div>
               </div>
 
               <div className="form-group">

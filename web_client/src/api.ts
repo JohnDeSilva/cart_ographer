@@ -2,12 +2,61 @@ export type RestaurantType = 'Food Stall' | 'Food Truck' | 'Brick and mortar Res
 
 export type UserRole = 'Admin' | 'Customer' | 'Consumer';
 
+export interface Location {
+  id: number;
+  location_type: string;
+  formatted: string;
+  description?: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  road_1?: string;
+  road_2?: string;
+  venue_name?: string;
+  stall_number?: string;
+  lot_name?: string;
+}
+
+export interface LocationCreatePayload {
+  location_type: string;
+  description?: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  road_1?: string;
+  road_2?: string;
+  venue_name?: string;
+  stall_number?: string;
+  lot_name?: string;
+}
+
+export interface LocationUpdatePayload {
+  description?: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  road_1?: string;
+  road_2?: string;
+  venue_name?: string;
+  stall_number?: string;
+  lot_name?: string;
+}
+
 export interface Restaurant {
   id: number;
   name: string;
   restaurant_type: RestaurantType;
   cuisine_type: string;
-  location: string;
+  location: Location;
   open_time: string;
   close_time: string;
   open_status: boolean;
@@ -15,7 +64,7 @@ export interface Restaurant {
   menu_items?: string;
   is_approved: boolean;
   owner_id?: number;
-  pending_location?: string;
+  pending_location?: Location;
   location_change_pending: boolean;
 }
 
@@ -23,7 +72,7 @@ export interface RestaurantCreate {
   name: string;
   restaurant_type: RestaurantType;
   cuisine_type: string;
-  location: string;
+  location: LocationCreatePayload;
   open_time: string;
   close_time: string;
   open_status: boolean;
@@ -35,7 +84,7 @@ export interface RestaurantSubmit {
   name: string;
   restaurant_type: RestaurantType;
   cuisine_type: string;
-  location: string;
+  location: LocationCreatePayload;
   open_time: string;
   close_time: string;
   open_status: boolean;
@@ -47,7 +96,7 @@ export interface RestaurantUpdate {
   name?: string;
   restaurant_type?: RestaurantType;
   cuisine_type?: string;
-  location?: string;
+  location?: LocationUpdatePayload;
   open_time?: string;
   close_time?: string;
   open_status?: boolean;

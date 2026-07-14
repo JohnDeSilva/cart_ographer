@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     Enum,
     Integer,
+    Float,
     ForeignKey,
     UniqueConstraint,
 )
@@ -27,6 +28,57 @@ class UserRole(str, enum.Enum):
     CONSUMER = "Consumer"
 
 
+class LocationCategory(str, enum.Enum):
+    STREET_ADDRESS = "street_address"
+    INTERSECTION = "intersection"
+    GPS_COORDINATES = "gps_coordinates"
+    PARKING_LOT = "parking_lot"
+    FOOD_COURT = "food_court"
+    OTHER = "other"
+
+
+class Location(Base):
+    __tablename__ = "locations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    location_type: Mapped[LocationCategory] = mapped_column(
+        Enum(LocationCategory), nullable=False
+    )
+    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    state: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    zip_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    road_1: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    road_2: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    venue_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    stall_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    lot_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    @property
+    def formatted(self) -> str:
+        if self.location_type == LocationCategory.STREET_ADDRESS:
+            parts = [p for p in [self.address, self.city, self.state] if p]
+            joined = ", ".join(parts)
+            if self.zip_code:
+                joined += f" {self.zip_code}" if joined else self.zip_code
+            return joined
+        elif self.location_type == LocationCategory.INTERSECTION:
+            return f"{self.road_1} & {self.road_2}" if self.road_1 and self.road_2 else (self.description or "")
+        elif self.location_type == LocationCategory.GPS_COORDINATES:
+            if self.lat is not None and self.lng is not None:
+                return f"{self.lat}, {self.lng}"
+            return self.description or ""
+        elif self.location_type == LocationCategory.FOOD_COURT:
+            parts = [p for p in [self.venue_name, self.stall_number] if p]
+            return ", ".join(parts) if parts else (self.description or "")
+        elif self.location_type == LocationCategory.PARKING_LOT:
+            return self.lot_name or self.description or ""
+        return self.description or ""
+
+
 class Restaurant(Base):
     __tablename__ = "restaurants"
 
@@ -36,7 +88,6 @@ class Restaurant(Base):
         Enum(RestaurantType), nullable=False
     )
     cuisine_type: Mapped[str] = mapped_column(String, default="", nullable=False)
-    location: Mapped[str] = mapped_column(String, nullable=False)
     open_time: Mapped[time] = mapped_column(Time, nullable=False)
     close_time: Mapped[time] = mapped_column(Time, nullable=False)
     open_status: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -46,13 +97,24 @@ class Restaurant(Base):
     owner_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )
-    pending_location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    location_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("locations.id"), nullable=True
+    )
+    pending_location_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("locations.id"), nullable=True
+    )
     location_change_pending: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
 
     owner: Mapped[Optional["User"]] = relationship(
         "User", back_populates="owned_restaurants", foreign_keys=[owner_id]
+    )
+    location: Mapped[Optional["Location"]] = relationship(
+        "Location", foreign_keys=[location_id], post_update=True
+    )
+    pending_location: Mapped[Optional["Location"]] = relationship(
+        "Location", foreign_keys=[pending_location_id], post_update=True
     )
 
 

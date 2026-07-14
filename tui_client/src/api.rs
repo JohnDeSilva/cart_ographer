@@ -32,12 +32,86 @@ pub enum UserRole {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Location {
+    pub id: i32,
+    pub location_type: String,
+    pub formatted: String,
+    pub description: Option<String>,
+    pub lat: Option<f64>,
+    pub lng: Option<f64>,
+    pub address: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub zip_code: Option<String>,
+    pub road_1: Option<String>,
+    pub road_2: Option<String>,
+    pub venue_name: Option<String>,
+    pub stall_number: Option<String>,
+    pub lot_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocationCreatePayload {
+    pub location_type: String,
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lng: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zip_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub road_1: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub road_2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub venue_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stall_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lot_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocationUpdatePayload {
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lng: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zip_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub road_1: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub road_2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub venue_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stall_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lot_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Restaurant {
     pub id: i32,
     pub name: String,
     pub restaurant_type: RestaurantType,
     pub cuisine_type: String,
-    pub location: String,
+    pub location: Location,
     pub open_time: String,
     pub close_time: String,
     pub open_status: bool,
@@ -45,16 +119,16 @@ pub struct Restaurant {
     pub menu_items: Option<String>,
     pub is_approved: bool,
     pub owner_id: Option<i32>,
-    pub pending_location: Option<String>,
+    pub pending_location: Option<Location>,
     pub location_change_pending: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize)]
 pub struct RestaurantCreate {
     pub name: String,
     pub restaurant_type: RestaurantType,
     pub cuisine_type: String,
-    pub location: String,
+    pub location: LocationCreatePayload,
     pub open_time: String,
     pub close_time: String,
     pub open_status: bool,
@@ -62,12 +136,12 @@ pub struct RestaurantCreate {
     pub menu_items: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize)]
 pub struct RestaurantUpdate {
     pub name: Option<String>,
     pub restaurant_type: Option<RestaurantType>,
     pub cuisine_type: Option<String>,
-    pub location: Option<String>,
+    pub location: Option<LocationUpdatePayload>,
     pub open_time: Option<String>,
     pub close_time: Option<String>,
     pub open_status: Option<bool>,

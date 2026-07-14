@@ -9,7 +9,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 mod api;
 mod ui;
 
-use api::{ApiClient, FavoriteResponse, Restaurant, RestaurantCreate, RestaurantUpdate, RestaurantType, UserRole};
+use api::{ApiClient, FavoriteResponse, LocationCreatePayload, LocationUpdatePayload, Restaurant, RestaurantCreate, RestaurantUpdate, RestaurantType, UserRole};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Screen {
@@ -39,6 +39,18 @@ pub enum Focus {
     FormType,
     FormCuisineType,
     FormLocation,
+    FormLocationDesc,
+    FormLocationLat,
+    FormLocationLng,
+    FormLocationAddress,
+    FormLocationCity,
+    FormLocationState,
+    FormLocationZip,
+    FormLocationRoad1,
+    FormLocationRoad2,
+    FormLocationVenue,
+    FormLocationStall,
+    FormLocationLot,
     FormOpenTime,
     FormCloseTime,
     FormOpenStatus,
@@ -73,6 +85,18 @@ pub struct App {
     pub form_type: RestaurantType,
     pub form_cuisine_type: String,
     pub form_location: String,
+    pub form_location_desc: String,
+    pub form_location_lat: String,
+    pub form_location_lng: String,
+    pub form_location_address: String,
+    pub form_location_city: String,
+    pub form_location_state: String,
+    pub form_location_zip: String,
+    pub form_location_road1: String,
+    pub form_location_road2: String,
+    pub form_location_venue: String,
+    pub form_location_stall: String,
+    pub form_location_lot: String,
     pub form_open_time: String,
     pub form_close_time: String,
     pub form_open_status: bool,
@@ -102,6 +126,18 @@ impl App {
             form_type: RestaurantType::FoodStall,
             form_cuisine_type: String::new(),
             form_location: String::new(),
+            form_location_desc: String::new(),
+            form_location_lat: String::new(),
+            form_location_lng: String::new(),
+            form_location_address: String::new(),
+            form_location_city: String::new(),
+            form_location_state: String::new(),
+            form_location_zip: String::new(),
+            form_location_road1: String::new(),
+            form_location_road2: String::new(),
+            form_location_venue: String::new(),
+            form_location_stall: String::new(),
+            form_location_lot: String::new(),
             form_open_time: "08:00:00".to_string(),
             form_close_time: "22:00:00".to_string(),
             form_open_status: true,
@@ -315,9 +351,15 @@ async fn handle_login_keys(app: &mut App, key: event::KeyEvent) {
             app.set_status("Signing in...");
             match app.api_client.login(&app.input_username, &app.input_password).await {
                 Ok(_) => {
-                    app.screen = Screen::Dashboard;
-                    app.focus = Focus::RestaurantList;
-                    app.fetch_restaurants().await;
+                    if app.api_client.role == Some(UserRole::Customer) {
+                        app.screen = Screen::MyRestaurants;
+                        app.focus = Focus::MyRestaurantsList;
+                        app.fetch_my_restaurants().await;
+                    } else {
+                        app.screen = Screen::Dashboard;
+                        app.focus = Focus::RestaurantList;
+                        app.fetch_restaurants().await;
+                    }
                 }
                 Err(e) => {
                     app.set_status(&format!("Login failed: {}", e));
@@ -829,6 +871,18 @@ fn clear_form(app: &mut App) {
     app.form_type = RestaurantType::FoodStall;
     app.form_cuisine_type.clear();
     app.form_location.clear();
+    app.form_location_desc.clear();
+    app.form_location_lat.clear();
+    app.form_location_lng.clear();
+    app.form_location_address.clear();
+    app.form_location_city.clear();
+    app.form_location_state.clear();
+    app.form_location_zip.clear();
+    app.form_location_road1.clear();
+    app.form_location_road2.clear();
+    app.form_location_venue.clear();
+    app.form_location_stall.clear();
+    app.form_location_lot.clear();
     app.form_open_time = "08:00:00".to_string();
     app.form_close_time = "22:00:00".to_string();
     app.form_open_status = true;
@@ -840,7 +894,19 @@ fn populate_form_from_restaurant(app: &mut App, r: &Restaurant) {
     app.form_name = r.name.clone();
     app.form_type = r.restaurant_type.clone();
     app.form_cuisine_type = r.cuisine_type.clone();
-    app.form_location = r.location.clone();
+    app.form_location = r.location.formatted.clone();
+    app.form_location_desc = r.location.description.clone().unwrap_or_default();
+    app.form_location_lat = r.location.lat.map(|v| v.to_string()).unwrap_or_default();
+    app.form_location_lng = r.location.lng.map(|v| v.to_string()).unwrap_or_default();
+    app.form_location_address = r.location.address.clone().unwrap_or_default();
+    app.form_location_city = r.location.city.clone().unwrap_or_default();
+    app.form_location_state = r.location.state.clone().unwrap_or_default();
+    app.form_location_zip = r.location.zip_code.clone().unwrap_or_default();
+    app.form_location_road1 = r.location.road_1.clone().unwrap_or_default();
+    app.form_location_road2 = r.location.road_2.clone().unwrap_or_default();
+    app.form_location_venue = r.location.venue_name.clone().unwrap_or_default();
+    app.form_location_stall = r.location.stall_number.clone().unwrap_or_default();
+    app.form_location_lot = r.location.lot_name.clone().unwrap_or_default();
     app.form_open_time = r.open_time.clone();
     app.form_close_time = r.close_time.clone();
     app.form_open_status = r.open_status;
@@ -855,7 +921,19 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
                 Focus::FormName => Focus::FormType,
                 Focus::FormType => Focus::FormCuisineType,
                 Focus::FormCuisineType => Focus::FormLocation,
-                Focus::FormLocation => Focus::FormOpenTime,
+                Focus::FormLocation => Focus::FormLocationDesc,
+                Focus::FormLocationDesc => Focus::FormLocationLat,
+                Focus::FormLocationLat => Focus::FormLocationLng,
+                Focus::FormLocationLng => Focus::FormLocationAddress,
+                Focus::FormLocationAddress => Focus::FormLocationCity,
+                Focus::FormLocationCity => Focus::FormLocationState,
+                Focus::FormLocationState => Focus::FormLocationZip,
+                Focus::FormLocationZip => Focus::FormLocationRoad1,
+                Focus::FormLocationRoad1 => Focus::FormLocationRoad2,
+                Focus::FormLocationRoad2 => Focus::FormLocationVenue,
+                Focus::FormLocationVenue => Focus::FormLocationStall,
+                Focus::FormLocationStall => Focus::FormLocationLot,
+                Focus::FormLocationLot => Focus::FormOpenTime,
                 Focus::FormOpenTime => Focus::FormCloseTime,
                 Focus::FormCloseTime => Focus::FormOpenStatus,
                 Focus::FormOpenStatus => Focus::FormDescription,
@@ -877,7 +955,28 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
                 match app.focus {
                     Focus::FormName => app.form_name.push(' '),
                     Focus::FormCuisineType => app.form_cuisine_type.push(' '),
-                    Focus::FormLocation => app.form_location.push(' '),
+                    Focus::FormLocation | Focus::FormLocationDesc | Focus::FormLocationAddress |
+                    Focus::FormLocationCity | Focus::FormLocationState | Focus::FormLocationZip |
+                    Focus::FormLocationRoad1 | Focus::FormLocationRoad2 | Focus::FormLocationVenue |
+                    Focus::FormLocationStall | Focus::FormLocationLot |
+                    Focus::FormLocationLat | Focus::FormLocationLng => {
+                        match app.focus {
+                            Focus::FormLocation => app.form_location.push(' '),
+                            Focus::FormLocationDesc => app.form_location_desc.push(' '),
+                            Focus::FormLocationLat => app.form_location_lat.push(' '),
+                            Focus::FormLocationLng => app.form_location_lng.push(' '),
+                            Focus::FormLocationAddress => app.form_location_address.push(' '),
+                            Focus::FormLocationCity => app.form_location_city.push(' '),
+                            Focus::FormLocationState => app.form_location_state.push(' '),
+                            Focus::FormLocationZip => app.form_location_zip.push(' '),
+                            Focus::FormLocationRoad1 => app.form_location_road1.push(' '),
+                            Focus::FormLocationRoad2 => app.form_location_road2.push(' '),
+                            Focus::FormLocationVenue => app.form_location_venue.push(' '),
+                            Focus::FormLocationStall => app.form_location_stall.push(' '),
+                            Focus::FormLocationLot => app.form_location_lot.push(' '),
+                            _ => {}
+                        }
+                    }
                     Focus::FormDescription => app.form_description.push(' '),
                     Focus::FormMenuItems => app.form_menu_items.push(' '),
                     _ => {}
@@ -889,6 +988,18 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
                 Focus::FormName => app.form_name.push(c),
                 Focus::FormCuisineType => app.form_cuisine_type.push(c),
                 Focus::FormLocation => app.form_location.push(c),
+                Focus::FormLocationDesc => app.form_location_desc.push(c),
+                Focus::FormLocationLat => app.form_location_lat.push(c),
+                Focus::FormLocationLng => app.form_location_lng.push(c),
+                Focus::FormLocationAddress => app.form_location_address.push(c),
+                Focus::FormLocationCity => app.form_location_city.push(c),
+                Focus::FormLocationState => app.form_location_state.push(c),
+                Focus::FormLocationZip => app.form_location_zip.push(c),
+                Focus::FormLocationRoad1 => app.form_location_road1.push(c),
+                Focus::FormLocationRoad2 => app.form_location_road2.push(c),
+                Focus::FormLocationVenue => app.form_location_venue.push(c),
+                Focus::FormLocationStall => app.form_location_stall.push(c),
+                Focus::FormLocationLot => app.form_location_lot.push(c),
                 Focus::FormOpenTime => app.form_open_time.push(c),
                 Focus::FormCloseTime => app.form_close_time.push(c),
                 Focus::FormDescription => app.form_description.push(c),
@@ -901,6 +1012,18 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
                 Focus::FormName => { app.form_name.pop(); }
                 Focus::FormCuisineType => { app.form_cuisine_type.pop(); }
                 Focus::FormLocation => { app.form_location.pop(); }
+                Focus::FormLocationDesc => { app.form_location_desc.pop(); }
+                Focus::FormLocationLat => { app.form_location_lat.pop(); }
+                Focus::FormLocationLng => { app.form_location_lng.pop(); }
+                Focus::FormLocationAddress => { app.form_location_address.pop(); }
+                Focus::FormLocationCity => { app.form_location_city.pop(); }
+                Focus::FormLocationState => { app.form_location_state.pop(); }
+                Focus::FormLocationZip => { app.form_location_zip.pop(); }
+                Focus::FormLocationRoad1 => { app.form_location_road1.pop(); }
+                Focus::FormLocationRoad2 => { app.form_location_road2.pop(); }
+                Focus::FormLocationVenue => { app.form_location_venue.pop(); }
+                Focus::FormLocationStall => { app.form_location_stall.pop(); }
+                Focus::FormLocationLot => { app.form_location_lot.pop(); }
                 Focus::FormOpenTime => { app.form_open_time.pop(); }
                 Focus::FormCloseTime => { app.form_close_time.pop(); }
                 Focus::FormDescription => { app.form_description.pop(); }
@@ -942,6 +1065,35 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
             };
 
             let cuisine = app.form_cuisine_type.clone();
+            let loc_type = match app.form_type {
+                RestaurantType::BrickAndMortar => "street_address",
+                RestaurantType::FoodCart => "food_court",
+                RestaurantType::FoodTruck => "gps",
+                RestaurantType::FoodStall => "intersection",
+            };
+            let parse_opt_f64 = |s: &str| -> Option<f64> {
+                let t = s.trim();
+                if t.is_empty() { None } else { t.parse::<f64>().ok() }
+            };
+            let opt_str = |s: &str| -> Option<String> {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            };
+            let loc_payload = LocationCreatePayload {
+                location_type: loc_type.to_string(),
+                description: opt_str(&app.form_location),
+                lat: parse_opt_f64(&app.form_location_lat),
+                lng: parse_opt_f64(&app.form_location_lng),
+                address: opt_str(&app.form_location_address),
+                city: opt_str(&app.form_location_city),
+                state: opt_str(&app.form_location_state),
+                zip_code: opt_str(&app.form_location_zip),
+                road_1: opt_str(&app.form_location_road1),
+                road_2: opt_str(&app.form_location_road2),
+                venue_name: opt_str(&app.form_location_venue),
+                stall_number: opt_str(&app.form_location_stall),
+                lot_name: opt_str(&app.form_location_lot),
+            };
 
             match app.screen {
                 Screen::AddRestaurant => {
@@ -949,7 +1101,7 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
                         name: app.form_name.clone(),
                         restaurant_type: app.form_type.clone(),
                         cuisine_type: cuisine,
-                        location: app.form_location.clone(),
+                        location: loc_payload,
                         open_time: app.form_open_time.clone(),
                         close_time: app.form_close_time.clone(),
                         open_status: app.form_open_status,
@@ -990,7 +1142,20 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
                             name: Some(app.form_name.clone()),
                             restaurant_type: Some(app.form_type.clone()),
                             cuisine_type: Some(cuisine),
-                            location: Some(app.form_location.clone()),
+                            location: Some(LocationUpdatePayload {
+                                description: opt_str(&app.form_location),
+                                lat: parse_opt_f64(&app.form_location_lat),
+                                lng: parse_opt_f64(&app.form_location_lng),
+                                address: opt_str(&app.form_location_address),
+                                city: opt_str(&app.form_location_city),
+                                state: opt_str(&app.form_location_state),
+                                zip_code: opt_str(&app.form_location_zip),
+                                road_1: opt_str(&app.form_location_road1),
+                                road_2: opt_str(&app.form_location_road2),
+                                venue_name: opt_str(&app.form_location_venue),
+                                stall_number: opt_str(&app.form_location_stall),
+                                lot_name: opt_str(&app.form_location_lot),
+                            }),
                             open_time: Some(app.form_open_time.clone()),
                             close_time: Some(app.form_close_time.clone()),
                             open_status: Some(app.form_open_status),
@@ -1028,6 +1193,7 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api::Location;
 
     #[tokio::test]
     async fn test_app_initialization() {
@@ -1123,6 +1289,18 @@ mod tests {
             Focus::FormType,
             Focus::FormCuisineType,
             Focus::FormLocation,
+            Focus::FormLocationDesc,
+            Focus::FormLocationLat,
+            Focus::FormLocationLng,
+            Focus::FormLocationAddress,
+            Focus::FormLocationCity,
+            Focus::FormLocationState,
+            Focus::FormLocationZip,
+            Focus::FormLocationRoad1,
+            Focus::FormLocationRoad2,
+            Focus::FormLocationVenue,
+            Focus::FormLocationStall,
+            Focus::FormLocationLot,
             Focus::FormOpenTime,
             Focus::FormCloseTime,
             Focus::FormOpenStatus,
@@ -1143,12 +1321,30 @@ mod tests {
         app.screen = Screen::MyRestaurants;
         app.focus = Focus::MyRestaurantsList;
 
+        let loc1 = Location {
+            id: 1,
+            location_type: "other".to_string(),
+            formatted: "Loc1".to_string(),
+            description: Some("Loc1".to_string()),
+            lat: None, lng: None, address: None, city: None, state: None,
+            zip_code: None, road_1: None, road_2: None,
+            venue_name: None, stall_number: None, lot_name: None,
+        };
+        let loc2 = Location {
+            id: 2,
+            location_type: "other".to_string(),
+            formatted: "Loc2".to_string(),
+            description: Some("Loc2".to_string()),
+            lat: None, lng: None, address: None, city: None, state: None,
+            zip_code: None, road_1: None, road_2: None,
+            venue_name: None, stall_number: None, lot_name: None,
+        };
         let r1 = Restaurant {
             id: 1,
             name: "Test1".to_string(),
             restaurant_type: RestaurantType::FoodStall,
             cuisine_type: String::new(),
-            location: "Loc1".to_string(),
+            location: loc1,
             open_time: "08:00:00".to_string(),
             close_time: "22:00:00".to_string(),
             open_status: true,
@@ -1164,7 +1360,7 @@ mod tests {
             name: "Test2".to_string(),
             restaurant_type: RestaurantType::FoodTruck,
             cuisine_type: String::new(),
-            location: "Loc2".to_string(),
+            location: loc2,
             open_time: "09:00:00".to_string(),
             close_time: "21:00:00".to_string(),
             open_status: false,

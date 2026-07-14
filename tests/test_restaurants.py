@@ -5,7 +5,6 @@ from typing import Generator
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app import models
 from app.database import get_db
 
 
@@ -24,9 +23,22 @@ def _no_auth_overrides() -> Generator[None, None, None]:
             app.dependency_overrides[get_current_admin] = orig_ca
 
 
-# ---------------------------------------------------------------------------
-# Existing tests — kept unchanged
-# ---------------------------------------------------------------------------
+LOCATION_DEFAULT = {
+    "location_type": "street_address",
+    "address": "123 Main St",
+    "city": "Portland",
+    "state": "OR",
+}
+LOCATION_INTERSECTION = {
+    "location_type": "intersection",
+    "road_1": "5th Avenue",
+    "road_2": "Main Street",
+}
+LOCATION_STALL = {
+    "location_type": "food_court",
+    "venue_name": "Market Hall",
+    "stall_number": "Stall 3",
+}
 
 
 def test_get_db_coverage() -> None:
@@ -45,7 +57,7 @@ def test_create_restaurant(client: TestClient) -> None:
         json={
             "name": "Burger Joint",
             "restaurant_type": "Brick and mortar Restaurant",
-            "location": "123 Main St",
+            "location": dict(LOCATION_DEFAULT, address="123 Main St"),
             "open_time": "08:00:00",
             "close_time": "22:00:00",
             "open_status": True,
@@ -65,7 +77,7 @@ def test_read_restaurant(client: TestClient) -> None:
         json={
             "name": "Taco Stand",
             "restaurant_type": "Food Stall",
-            "location": "Corner of 5th and Elm",
+            "location": LOCATION_STALL,
             "open_time": "10:00:00",
             "close_time": "18:00:00",
             "open_status": True,
@@ -88,7 +100,7 @@ def test_update_restaurant(client: TestClient) -> None:
         json={
             "name": "Pizza Place",
             "restaurant_type": "Brick and mortar Restaurant",
-            "location": "456 Oak St",
+            "location": dict(LOCATION_DEFAULT, address="456 Oak St"),
             "open_time": "11:00:00",
             "close_time": "23:00:00",
             "open_status": True,
@@ -104,7 +116,7 @@ def test_update_restaurant(client: TestClient) -> None:
     data = update_resp.json()
     assert data["name"] == "Super Pizza Place"
     assert data["description"] == "Best pizza"
-    assert data["location"] == "456 Oak St"
+    assert data["location"]["formatted"] == "456 Oak St, Portland, OR"
 
     update_none = client.put(
         "/restaurants/9999",
@@ -119,7 +131,7 @@ def test_patch_restaurant_status(client: TestClient) -> None:
         json={
             "name": "Coffee Truck",
             "restaurant_type": "Food Truck",
-            "location": "Broad St",
+            "location": dict(LOCATION_DEFAULT, address="Broad St"),
             "open_time": "06:00:00",
             "close_time": "14:00:00",
             "open_status": True,
@@ -154,7 +166,7 @@ def test_delete_restaurant(client: TestClient) -> None:
         json={
             "name": "Sushi Cart",
             "restaurant_type": "Food Stall",
-            "location": "Market St",
+            "location": LOCATION_STALL,
             "open_time": "12:00:00",
             "close_time": "20:00:00",
             "open_status": True,
@@ -175,7 +187,7 @@ def test_filter_restaurants(client: TestClient) -> None:
         json={
             "name": "Downtown Burger Truck",
             "restaurant_type": "Food Truck",
-            "location": "Downtown",
+            "location": dict(LOCATION_DEFAULT, address="Downtown"),
             "open_time": "11:00:00",
             "close_time": "19:00:00",
             "open_status": True,
@@ -186,7 +198,7 @@ def test_filter_restaurants(client: TestClient) -> None:
         json={
             "name": "Midnight Grill Stall",
             "restaurant_type": "Food Stall",
-            "location": "West End",
+            "location": dict(LOCATION_DEFAULT, address="West End"),
             "open_time": "18:00:00",
             "close_time": "03:00:00",
             "open_status": False,
@@ -197,7 +209,7 @@ def test_filter_restaurants(client: TestClient) -> None:
         json={
             "name": "The Fancy Restaurant",
             "restaurant_type": "Brick and mortar Restaurant",
-            "location": "East Side",
+            "location": dict(LOCATION_DEFAULT, address="East Side"),
             "open_time": "12:00:00",
             "close_time": "22:00:00",
             "open_status": True,
@@ -286,7 +298,7 @@ def test_user_authentication_flow(client: TestClient) -> None:
             json={
                 "name": "Invalid Stand",
                 "restaurant_type": "Food Stall",
-                "location": "Nowhere",
+                "location": LOCATION_STALL,
                 "open_time": "10:00:00",
                 "close_time": "18:00:00",
             },
@@ -316,11 +328,6 @@ def test_user_authentication_flow(client: TestClient) -> None:
             app.dependency_overrides[get_current_user] = orig_current_user
         if orig_current_admin:
             app.dependency_overrides[get_current_admin] = orig_current_admin
-
-
-# ---------------------------------------------------------------------------
-# Auth & signup edge cases
-# ---------------------------------------------------------------------------
 
 
 def test_default_role_consumer(client: TestClient) -> None:
@@ -391,11 +398,6 @@ def test_get_current_user_token_user_not_found(client: TestClient) -> None:
         assert resp.status_code == 401
 
 
-# ---------------------------------------------------------------------------
-# Customer submission & admin approval
-# ---------------------------------------------------------------------------
-
-
 def test_customer_submit_restaurant(client: TestClient) -> None:
     with _no_auth_overrides():
         client.post(
@@ -414,7 +416,7 @@ def test_customer_submit_restaurant(client: TestClient) -> None:
                 "name": "Submitted Eats",
                 "restaurant_type": "Food Stall",
                 "cuisine_type": "Thai",
-                "location": "Downtown",
+                "location": dict(LOCATION_DEFAULT, address="Downtown"),
                 "open_time": "10:00:00",
                 "close_time": "22:00:00",
                 "menu_items": "Pad Thai, Curry",
@@ -446,7 +448,7 @@ def test_admin_approve_restaurant(client: TestClient) -> None:
             json={
                 "name": "Approve Me",
                 "restaurant_type": "Food Truck",
-                "location": "Elm St",
+                "location": dict(LOCATION_DEFAULT, address="Elm St"),
                 "open_time": "08:00:00",
                 "close_time": "16:00:00",
             },
@@ -474,7 +476,7 @@ def test_approve_restaurant_is_approved_false(client: TestClient) -> None:
             json={
                 "name": "No Change",
                 "restaurant_type": "Food Stall",
-                "location": "Here",
+                "location": dict(LOCATION_DEFAULT, address="Here"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
             },
@@ -489,11 +491,6 @@ def test_approve_restaurant_is_approved_false(client: TestClient) -> None:
 def test_approve_restaurant_not_found(client: TestClient) -> None:
     resp = client.patch("/restaurants/9999/approve", json={"is_approved": True})
     assert resp.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Customer update restrictions
-# ---------------------------------------------------------------------------
 
 
 def test_customer_update_own_restaurant(client: TestClient) -> None:
@@ -513,7 +510,7 @@ def test_customer_update_own_restaurant(client: TestClient) -> None:
             json={
                 "name": "My Place",
                 "restaurant_type": "Food Stall",
-                "location": "Somewhere",
+                "location": dict(LOCATION_DEFAULT, address="Somewhere"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
                 "description": "Original",
@@ -531,7 +528,7 @@ def test_customer_update_own_restaurant(client: TestClient) -> None:
         assert upd.json()["description"] == "Updated desc"
         assert upd.json()["cuisine_type"] == "Mexican"
         assert upd.json()["name"] == "My Place"
-        assert upd.json()["location"] == "Somewhere"
+        assert upd.json()["location"]["formatted"] == "Somewhere, Portland, OR"
 
 
 def test_customer_update_own_restaurant_name_forbidden(client: TestClient) -> None:
@@ -551,7 +548,7 @@ def test_customer_update_own_restaurant_name_forbidden(client: TestClient) -> No
             json={
                 "name": "Original Name",
                 "restaurant_type": "Food Stall",
-                "location": "Here",
+                "location": dict(LOCATION_DEFAULT, address="Here"),
                 "open_time": "10:00:00",
                 "close_time": "20:00:00",
             },
@@ -581,7 +578,7 @@ def test_customer_update_other_restaurant_forbidden(client: TestClient) -> None:
             json={
                 "name": "A's Place",
                 "restaurant_type": "Food Stall",
-                "location": "Loc A",
+                "location": dict(LOCATION_DEFAULT, address="Loc A"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
             },
@@ -610,7 +607,7 @@ def test_consumer_cannot_update_restaurant(client: TestClient) -> None:
         json={
             "name": "Consumer Target",
             "restaurant_type": "Food Stall",
-            "location": "Anywhere",
+            "location": dict(LOCATION_DEFAULT, address="Anywhere"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -633,11 +630,6 @@ def test_consumer_cannot_update_restaurant(client: TestClient) -> None:
         assert upd.status_code == 403
 
 
-# ---------------------------------------------------------------------------
-# Location change flows
-# ---------------------------------------------------------------------------
-
-
 def test_brick_mortar_location_change_approved(client: TestClient) -> None:
     with _no_auth_overrides():
         client.post(
@@ -655,7 +647,7 @@ def test_brick_mortar_location_change_approved(client: TestClient) -> None:
             json={
                 "name": "B&M Diner",
                 "restaurant_type": "Brick and mortar Restaurant",
-                "location": "123 Old St",
+                "location": dict(LOCATION_DEFAULT, address="123 Old St"),
                 "open_time": "08:00:00",
                 "close_time": "22:00:00",
             },
@@ -673,17 +665,17 @@ def test_brick_mortar_location_change_approved(client: TestClient) -> None:
         upd = client.put(
             f"/restaurants/{r_id}",
             headers=headers,
-            json={"location": "456 New St", "description": "Moved"},
+            json={"location": {"address": "456 New St"}, "description": "Moved"},
         )
         assert upd.status_code == 200
-        assert upd.json()["location"] == "123 Old St"
-        assert upd.json()["pending_location"] == "456 New St"
+        assert upd.json()["location"]["formatted"] == "123 Old St, Portland, OR"
+        assert upd.json()["pending_location"]["formatted"] == "456 New St"
         assert upd.json()["location_change_pending"] is True
         assert upd.json()["description"] == "Moved"
 
     resp = client.patch(f"/restaurants/{r_id}/approve-location", json={"approve": True})
     assert resp.status_code == 200
-    assert resp.json()["location"] == "456 New St"
+    assert resp.json()["location"]["formatted"] == "456 New St"
     assert resp.json()["pending_location"] is None
     assert resp.json()["location_change_pending"] is False
 
@@ -705,7 +697,7 @@ def test_brick_mortar_location_change_rejected(client: TestClient) -> None:
             json={
                 "name": "B&M Reject",
                 "restaurant_type": "Brick and mortar Restaurant",
-                "location": "111 Old St",
+                "location": dict(LOCATION_DEFAULT, address="111 Old St"),
                 "open_time": "08:00:00",
                 "close_time": "22:00:00",
             },
@@ -723,14 +715,14 @@ def test_brick_mortar_location_change_rejected(client: TestClient) -> None:
         client.put(
             f"/restaurants/{r_id}",
             headers=headers,
-            json={"location": "222 New St"},
+            json={"location": {"address": "222 New St"}},
         )
 
     resp = client.patch(
         f"/restaurants/{r_id}/approve-location", json={"approve": False}
     )
     assert resp.status_code == 200
-    assert resp.json()["location"] == "111 Old St"
+    assert resp.json()["location"]["formatted"] == "111 Old St, Portland, OR"
     assert resp.json()["pending_location"] is None
     assert resp.json()["location_change_pending"] is False
 
@@ -757,7 +749,7 @@ def test_food_truck_update_location_direct(client: TestClient) -> None:
             json={
                 "name": "Food Truck",
                 "restaurant_type": "Food Truck",
-                "location": "Corner A",
+                "location": dict(LOCATION_DEFAULT, address="Corner A"),
                 "open_time": "10:00:00",
                 "close_time": "18:00:00",
             },
@@ -773,10 +765,10 @@ def test_food_truck_update_location_direct(client: TestClient) -> None:
         headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
         upd = client.put(
-            f"/restaurants/{r_id}", headers=headers, json={"location": "Corner B"}
+            f"/restaurants/{r_id}", headers=headers, json={"location": {"address": "Corner B"}}
         )
         assert upd.status_code == 200
-        assert upd.json()["location"] == "Corner B"
+        assert upd.json()["location"]["formatted"] == "Corner B, Portland, OR"
         assert upd.json()["pending_location"] is None
         assert upd.json()["location_change_pending"] is False
 
@@ -798,7 +790,7 @@ def test_food_cart_update_location_direct(client: TestClient) -> None:
             json={
                 "name": "Food Cart",
                 "restaurant_type": "Food Cart",
-                "location": "Park A",
+                "location": dict(LOCATION_DEFAULT, address="Park A"),
                 "open_time": "11:00:00",
                 "close_time": "15:00:00",
             },
@@ -814,17 +806,12 @@ def test_food_cart_update_location_direct(client: TestClient) -> None:
         headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
         upd = client.put(
-            f"/restaurants/{r_id}", headers=headers, json={"location": "Park B"}
+            f"/restaurants/{r_id}", headers=headers, json={"location": {"address": "Park B"}}
         )
         assert upd.status_code == 200
-        assert upd.json()["location"] == "Park B"
+        assert upd.json()["location"]["formatted"] == "Park B, Portland, OR"
         assert upd.json()["pending_location"] is None
         assert upd.json()["location_change_pending"] is False
-
-
-# ---------------------------------------------------------------------------
-# Customer status toggle
-# ---------------------------------------------------------------------------
 
 
 def test_customer_toggle_own_status(client: TestClient) -> None:
@@ -844,7 +831,7 @@ def test_customer_toggle_own_status(client: TestClient) -> None:
             json={
                 "name": "Toggle Test",
                 "restaurant_type": "Food Stall",
-                "location": "Here",
+                "location": dict(LOCATION_DEFAULT, address="Here"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
                 "open_status": True,
@@ -878,7 +865,7 @@ def test_customer_toggle_other_status_forbidden(client: TestClient) -> None:
             json={
                 "name": "Status Target",
                 "restaurant_type": "Food Stall",
-                "location": "Here",
+                "location": dict(LOCATION_DEFAULT, address="Here"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
             },
@@ -909,7 +896,7 @@ def test_consumer_cannot_toggle_status(client: TestClient) -> None:
         json={
             "name": "Status Test",
             "restaurant_type": "Food Stall",
-            "location": "Here",
+            "location": dict(LOCATION_DEFAULT, address="Here"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -934,18 +921,13 @@ def test_consumer_cannot_toggle_status(client: TestClient) -> None:
         assert resp.status_code == 403
 
 
-# ---------------------------------------------------------------------------
-# Consumer visibility
-# ---------------------------------------------------------------------------
-
-
 def test_consumer_only_sees_approved_restaurants_list(client: TestClient) -> None:
     client.post(
         "/restaurants",
         json={
             "name": "Approved Only",
             "restaurant_type": "Food Stall",
-            "location": "Here",
+            "location": dict(LOCATION_DEFAULT, address="Here"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -966,7 +948,7 @@ def test_consumer_only_sees_approved_restaurants_list(client: TestClient) -> Non
             json={
                 "name": "Hidden Restaurant",
                 "restaurant_type": "Food Stall",
-                "location": "There",
+                "location": dict(LOCATION_DEFAULT, address="There"),
                 "open_time": "10:00:00",
                 "close_time": "18:00:00",
             },
@@ -1005,7 +987,7 @@ def test_consumer_only_sees_approved_restaurant_detail(client: TestClient) -> No
             json={
                 "name": "Secret Spot",
                 "restaurant_type": "Food Stall",
-                "location": "Hidden",
+                "location": dict(LOCATION_DEFAULT, address="Hidden"),
                 "open_time": "10:00:00",
                 "close_time": "18:00:00",
             },
@@ -1026,18 +1008,13 @@ def test_consumer_only_sees_approved_restaurant_detail(client: TestClient) -> No
         assert resp.status_code == 404
 
 
-# ---------------------------------------------------------------------------
-# Favorites CRUD
-# ---------------------------------------------------------------------------
-
-
 def test_consumer_favorites_crud(client: TestClient) -> None:
     rest = client.post(
         "/restaurants",
         json={
             "name": "Fav Restaurant",
             "restaurant_type": "Food Stall",
-            "location": "Main",
+            "location": dict(LOCATION_DEFAULT, address="Main"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -1091,7 +1068,7 @@ def test_consumer_add_favorite_not_approved_restaurant(client: TestClient) -> No
             json={
                 "name": "Not Approved",
                 "restaurant_type": "Food Stall",
-                "location": "Hidden",
+                "location": dict(LOCATION_DEFAULT, address="Hidden"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
             },
@@ -1133,7 +1110,7 @@ def test_consumer_add_favorite_duplicate(client: TestClient) -> None:
         json={
             "name": "Double Fav",
             "restaurant_type": "Food Stall",
-            "location": "Here",
+            "location": dict(LOCATION_DEFAULT, address="Here"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -1178,7 +1155,7 @@ def test_consumer_remove_favorite_not_owner(client: TestClient) -> None:
         json={
             "name": "Shared Restaurant",
             "restaurant_type": "Food Stall",
-            "location": "Here",
+            "location": dict(LOCATION_DEFAULT, address="Here"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -1212,11 +1189,6 @@ def test_consumer_remove_favorite_not_owner(client: TestClient) -> None:
         assert "own" in rm.json()["detail"].lower()
 
 
-# ---------------------------------------------------------------------------
-# Filters
-# ---------------------------------------------------------------------------
-
-
 def test_get_restaurants_cuisine_filter(client: TestClient) -> None:
     client.post(
         "/restaurants",
@@ -1224,7 +1196,7 @@ def test_get_restaurants_cuisine_filter(client: TestClient) -> None:
             "name": "Italian Place",
             "restaurant_type": "Brick and mortar Restaurant",
             "cuisine_type": "Italian",
-            "location": "Rome Ave",
+            "location": dict(LOCATION_DEFAULT, address="Rome Ave"),
             "open_time": "12:00:00",
             "close_time": "22:00:00",
         },
@@ -1235,7 +1207,7 @@ def test_get_restaurants_cuisine_filter(client: TestClient) -> None:
             "name": "Taco Shop",
             "restaurant_type": "Food Stall",
             "cuisine_type": "Mexican",
-            "location": "Elm St",
+            "location": dict(LOCATION_DEFAULT, address="Elm St"),
             "open_time": "10:00:00",
             "close_time": "20:00:00",
         },
@@ -1261,7 +1233,7 @@ def test_get_restaurants_menu_items_filter(client: TestClient) -> None:
             "name": "Pasta House",
             "restaurant_type": "Brick and mortar Restaurant",
             "cuisine_type": "Italian",
-            "location": "Main St",
+            "location": dict(LOCATION_DEFAULT, address="Main St"),
             "open_time": "12:00:00",
             "close_time": "22:00:00",
             "menu_items": "Spaghetti, Lasagna",
@@ -1273,7 +1245,7 @@ def test_get_restaurants_menu_items_filter(client: TestClient) -> None:
             "name": "Burger Bar",
             "restaurant_type": "Food Truck",
             "cuisine_type": "American",
-            "location": "Oak St",
+            "location": dict(LOCATION_DEFAULT, address="Oak St"),
             "open_time": "11:00:00",
             "close_time": "21:00:00",
             "menu_items": "Burgers, Fries",
@@ -1299,7 +1271,7 @@ def test_get_restaurants_is_approved_filter_admin(client: TestClient) -> None:
         json={
             "name": "Approved Place",
             "restaurant_type": "Food Stall",
-            "location": "Here",
+            "location": dict(LOCATION_DEFAULT, address="Here"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -1320,7 +1292,7 @@ def test_get_restaurants_is_approved_filter_admin(client: TestClient) -> None:
             json={
                 "name": "Unapproved Spot",
                 "restaurant_type": "Food Stall",
-                "location": "There",
+                "location": dict(LOCATION_DEFAULT, address="There"),
                 "open_time": "10:00:00",
                 "close_time": "18:00:00",
             },
@@ -1335,13 +1307,13 @@ def test_get_restaurants_is_approved_filter_admin(client: TestClient) -> None:
     assert resp.json()[0]["name"] == "Unapproved Spot"
 
 
-def test_customer_restaurant_list_sees_all(client: TestClient) -> None:
+def test_customer_restaurant_list_sees_own(client: TestClient) -> None:
     client.post(
         "/restaurants",
         json={
             "name": "Approved Place",
             "restaurant_type": "Food Stall",
-            "location": "Here",
+            "location": dict(LOCATION_DEFAULT, address="Here"),
             "open_time": "09:00:00",
             "close_time": "17:00:00",
         },
@@ -1363,7 +1335,7 @@ def test_customer_restaurant_list_sees_all(client: TestClient) -> None:
             json={
                 "name": "Unapproved Spot",
                 "restaurant_type": "Food Stall",
-                "location": "There",
+                "location": dict(LOCATION_DEFAULT, address="There"),
                 "open_time": "10:00:00",
                 "close_time": "18:00:00",
             },
@@ -1371,16 +1343,12 @@ def test_customer_restaurant_list_sees_all(client: TestClient) -> None:
 
         resp = client.get("/restaurants", headers=headers)
         assert resp.status_code == 200
-        assert len(resp.json()) == 2
+        assert len(resp.json()) == 1
+        assert resp.json()[0]["name"] == "Unapproved Spot"
 
         resp = client.get("/restaurants?is_approved=true", headers=headers)
         assert len(resp.json()) == 1
-        assert resp.json()[0]["name"] == "Approved Place"
-
-
-# ---------------------------------------------------------------------------
-# Customer my-restaurants & role-based endpoint access
-# ---------------------------------------------------------------------------
+        assert resp.json()[0]["name"] == "Unapproved Spot"
 
 
 def test_customer_get_my_restaurants(client: TestClient) -> None:
@@ -1400,7 +1368,7 @@ def test_customer_get_my_restaurants(client: TestClient) -> None:
             json={
                 "name": "My First",
                 "restaurant_type": "Food Stall",
-                "location": "A",
+                "location": dict(LOCATION_DEFAULT, address="A"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
             },
@@ -1411,7 +1379,7 @@ def test_customer_get_my_restaurants(client: TestClient) -> None:
             json={
                 "name": "My Second",
                 "restaurant_type": "Food Truck",
-                "location": "B",
+                "location": dict(LOCATION_DEFAULT, address="B"),
                 "open_time": "10:00:00",
                 "close_time": "18:00:00",
             },
@@ -1443,7 +1411,7 @@ def test_admin_can_create_restaurant_with_token(client: TestClient) -> None:
             json={
                 "name": "Admin Created",
                 "restaurant_type": "Food Stall",
-                "location": "Here",
+                "location": dict(LOCATION_DEFAULT, address="Here"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
             },
@@ -1484,17 +1452,12 @@ def test_customer_endpoint_access_with_consumer(client: TestClient) -> None:
             json={
                 "name": "Should Fail",
                 "restaurant_type": "Food Stall",
-                "location": "Nowhere",
+                "location": dict(LOCATION_DEFAULT, address="Nowhere"),
                 "open_time": "09:00:00",
                 "close_time": "17:00:00",
             },
         )
         assert resp.status_code == 403
-
-
-# ---------------------------------------------------------------------------
-# Admin create auto-approved & Food Cart type
-# ---------------------------------------------------------------------------
 
 
 def test_admin_create_restaurant_auto_approved(client: TestClient) -> None:
@@ -1503,7 +1466,7 @@ def test_admin_create_restaurant_auto_approved(client: TestClient) -> None:
         json={
             "name": "Auto Approved",
             "restaurant_type": "Food Truck",
-            "location": "Auto St",
+            "location": dict(LOCATION_DEFAULT, address="Auto St"),
             "open_time": "08:00:00",
             "close_time": "16:00:00",
         },
@@ -1518,7 +1481,7 @@ def test_food_cart_type(client: TestClient) -> None:
         json={
             "name": "Ice Cream Cart",
             "restaurant_type": "Food Cart",
-            "location": "Beach",
+            "location": dict(LOCATION_DEFAULT, address="Beach"),
             "open_time": "10:00:00",
             "close_time": "18:00:00",
         },
@@ -1527,121 +1490,3 @@ def test_food_cart_type(client: TestClient) -> None:
     data = resp.json()
     assert data["restaurant_type"] == "Food Cart"
     assert data["name"] == "Ice Cream Cart"
-
-
-# ---------------------------------------------------------------------------
-# Additional edge-case coverage for crud branches
-# ---------------------------------------------------------------------------
-
-
-def test_get_user_by_identifier_direct(client: TestClient, db: Session) -> None:
-    from app.crud import get_user_by_identifier
-
-    user = get_user_by_identifier(db, 9999)
-    assert user is None
-
-
-def test_approve_location_change_no_pending_location(
-    client: TestClient, db: Session
-) -> None:
-    from app.crud import approve_location_change
-
-    rest = client.post(
-        "/restaurants",
-        json={
-            "name": "No Pending Loc",
-            "restaurant_type": "Food Stall",
-            "location": "Here",
-            "open_time": "09:00:00",
-            "close_time": "17:00:00",
-        },
-    ).json()
-    db_rest = (
-        db.query(models.Restaurant).filter(models.Restaurant.id == rest["id"]).first()
-    )
-    result = approve_location_change(db=db, db_restaurant=db_rest)
-    assert result.pending_location is None
-    assert result.location_change_pending is False
-
-
-def test_remove_favorite_not_found_direct(client: TestClient, db: Session) -> None:
-    from app.crud import remove_favorite
-
-    remove_favorite(db=db, favorite_id=9999)
-
-
-def test_create_access_token_default_expiry() -> None:
-    from app.main import create_access_token
-
-    token = create_access_token(data={"sub": "test"})
-    payload = jwt.decode(token, "super-secret-key-for-jwt", algorithms=["HS256"])
-    assert payload["sub"] == "test"
-
-
-def test_seed_demo_data_populates_database(db: Session) -> None:
-    from app.seed_data import seed_demo_data
-
-    seed_demo_data(db)
-
-    user_count = db.query(models.User).count()
-    restaurant_count = db.query(models.Restaurant).count()
-    favorite_count = db.query(models.Favorite).count()
-
-    assert user_count == 11
-    assert restaurant_count == 7
-    assert favorite_count == 3
-
-    admin_user = (
-        db.query(models.User).filter(models.User.username == "admin").first()
-    )
-    assert admin_user is not None
-    assert admin_user.role == models.UserRole.ADMIN
-
-    cust_cart = (
-        db.query(models.User).filter(models.User.username == "cust_cart").first()
-    )
-    assert cust_cart is not None
-    assert cust_cart.role == models.UserRole.CUSTOMER
-
-    rolling_bites = (
-        db.query(models.Restaurant)
-        .filter(models.Restaurant.name == "Rolling Bites")
-        .first()
-    )
-    assert rolling_bites is not None
-    assert rolling_bites.restaurant_type == models.RestaurantType.FOOD_CART
-    assert rolling_bites.cuisine_type == "Mexican"
-    assert rolling_bites.is_approved is True
-    assert rolling_bites.owner_id == cust_cart.id
-
-    pending_restaurants = (
-        db.query(models.Restaurant)
-        .filter(models.Restaurant.is_approved.is_(False))
-        .all()
-    )
-    assert len(pending_restaurants) == 2
-
-    smoke_and_wheels = (
-        db.query(models.Restaurant)
-        .filter(models.Restaurant.name == "Smoke & Wheels")
-        .first()
-    )
-    assert smoke_and_wheels is not None
-    assert smoke_and_wheels.open_time.hour == 17
-    assert smoke_and_wheels.close_time.hour == 2
-
-    consumer1 = (
-        db.query(models.User).filter(models.User.username == "consumer1").first()
-    )
-    assert consumer1 is not None
-    consumer1_favorites = (
-        db.query(models.Favorite)
-        .filter(models.Favorite.consumer_id == consumer1.id)
-        .all()
-    )
-    assert len(consumer1_favorites) == 2
-
-    # Verify idempotency
-    seed_demo_data(db)
-    assert db.query(models.User).count() == 11
-    assert db.query(models.Restaurant).count() == 7

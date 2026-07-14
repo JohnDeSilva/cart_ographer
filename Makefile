@@ -1,6 +1,6 @@
 RUN_DEV_DIR = run_dev
 
-.PHONY: setup run test lint format typecheck clean coverage run-tui setup-web run-web build-web test-web seed
+.PHONY: setup run test lint format typecheck clean clean-full coverage run-tui setup-web run-web build-web test-web seed
 
 # Default target
 all: setup lint typecheck test
@@ -101,10 +101,13 @@ test-web:
 	fi
 	cd web_client && npm run test
 
-# Clean up build/cache artifacts
+# Clean up build/cache artifacts (use clean-full to also remove npm/node and cargo target)
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov web_client/dist $(RUN_DEV_DIR)
 	find . -type d -name "__pycache__" -exec rm -r {} +
+
+clean-full: clean
+	rm -rf web_client/node_modules web_client/dist tui_client/target
 
 
 

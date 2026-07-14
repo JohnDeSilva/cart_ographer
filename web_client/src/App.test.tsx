@@ -34,12 +34,23 @@ const setupAuth = (role: string, username = 'testuser') => {
   localStorage.setItem('role', role);
 };
 
+const mockLocation = (overrides = {}) => ({
+  id: 1,
+  location_type: 'street_address',
+  formatted: '123 Main St, Portland, OR',
+  address: '123 Main St',
+  city: 'Portland',
+  state: 'OR',
+  description: '123 Main St',
+  ...overrides,
+});
+
 const mockRestaurant = (overrides = {}) => ({
   id: 1,
   name: 'Test Restaurant',
   restaurant_type: 'Food Stall' as Restaurant['restaurant_type'],
   cuisine_type: 'Italian',
-  location: '123 Main St',
+  location: mockLocation(),
   open_time: '08:00:00',
   close_time: '22:00:00',
   open_status: true,
@@ -117,7 +128,7 @@ describe('Web UI - App Component', () => {
   test('Customer sees My Submissions navigation tab', () => {
     setupAuth('Customer');
     render(<App />);
-    expect(screen.getByText(/my submissions/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /my submissions/i })).toBeInTheDocument();
   });
 
   test('Consumer sees My Favorites navigation tab', () => {
@@ -151,6 +162,9 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
+    const browseButton = screen.getByRole('button', { name: /browse/i });
+    fireEvent.click(browseButton);
+
     await waitFor(() => {
       const sidebarItems = screen.getAllByText('Test Restaurant');
       expect(sidebarItems.length).toBeGreaterThan(0);
@@ -178,6 +192,9 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
+    const browseButton = screen.getByRole('button', { name: /browse/i });
+    fireEvent.click(browseButton);
+
     await waitFor(() => {
       const sidebarItems = screen.getAllByText('Test Restaurant');
       expect(sidebarItems.length).toBeGreaterThan(0);
@@ -203,7 +220,7 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
-    const submissionsTab = screen.getByText(/my submissions/i);
+    const submissionsTab = screen.getByRole('button', { name: /my submissions/i });
     fireEvent.click(submissionsTab);
 
     await waitFor(() => {
@@ -247,7 +264,8 @@ describe('Web UI - App Component', () => {
   test('Restaurant detail shows pending location information', async () => {
     setupAuth('Admin');
     const restaurantWithPendingLocation = mockRestaurant({
-      pending_location: '456 New St',
+      location: mockLocation(),
+      pending_location: mockLocation({ formatted: '456 New St', address: '456 New St' }),
       location_change_pending: true,
     });
     vi.mocked(api.getRestaurants).mockResolvedValue([restaurantWithPendingLocation]);

@@ -55,10 +55,22 @@ def reset_user_password(
     return db_user
 
 
+def _create_location(
+    db: Session, location_data: schemas.LocationCreate
+) -> models.Location:
+    db_location = models.Location(**location_data.model_dump())
+    db.add(db_location)
+    db.flush()
+    return db_location
+
+
 def create_restaurant(
     db: Session, restaurant: schemas.RestaurantCreate
 ) -> models.Restaurant:
-    db_restaurant = models.Restaurant(**restaurant.model_dump())
+    rest_data = restaurant.model_dump(exclude={"location"})
+    db_location = _create_location(db, restaurant.location)
+    rest_data["location_id"] = db_location.id
+    db_restaurant = models.Restaurant(**rest_data)
     db.add(db_restaurant)
     db.commit()
     db.refresh(db_restaurant)
@@ -73,10 +85,12 @@ def create_restaurant(
 def submit_restaurant(
     db: Session, restaurant: schemas.RestaurantSubmit, owner_id: int
 ) -> models.Restaurant:
-    restaurant_data = restaurant.model_dump()
-    restaurant_data["owner_id"] = owner_id
-    restaurant_data["is_approved"] = False
-    db_restaurant = models.Restaurant(**restaurant_data)
+    rest_data = restaurant.model_dump(exclude={"location"})
+    rest_data["owner_id"] = owner_id
+    rest_data["is_approved"] = False
+    db_location = _create_location(db, restaurant.location)
+    rest_data["location_id"] = db_location.id
+    db_restaurant = models.Restaurant(**rest_data)
     db.add(db_restaurant)
     db.commit()
     db.refresh(db_restaurant)
@@ -167,7 +181,7 @@ def update_restaurant(
     db_restaurant: models.Restaurant,
     restaurant_update: schemas.RestaurantUpdate,
 ) -> models.Restaurant:
-    update_data = restaurant_update.model_dump(exclude_unset=True)
+    update_data = restaurant_update.model_dump(exclude={"location"}, exclude_unset=True)
     changed_fields = list(update_data.keys())
     for key, value in update_data.items():
         setattr(db_restaurant, key, value)
@@ -179,6 +193,16 @@ def update_restaurant(
         changed_fields,
     )
     return db_restaurant
+
+
+def _update_location_in_place(
+    db: Session, db_location: models.Location, location_update: schemas.LocationUpdate
+) -> models.Location:
+    update_data = location_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_location, key, value)
+    db.flush()
+    return db_location
 
 
 def update_restaurant_status(
@@ -209,17 +233,29 @@ def approve_restaurant(
     return db_restaurant
 
 
+def update_restaurant_location(
+    db: Session, db_restaurant: models.Restaurant, location_update: schemas.LocationUpdate
+) -> models.Location:
+    if not db_restaurant.location:
+        db_location = _create_location(db, schemas.LocationCreate(**location_update.model_dump(exclude_unset=True)))
+        db_restaurant.location_id = db_location.id
+        db.flush()
+        return db_location
+    return _update_location_in_place(db, db_restaurant.location, location_update)
+
+
 def request_location_change(
-    db: Session, db_restaurant: models.Restaurant, new_location: str
+    db: Session, db_restaurant: models.Restaurant, new_location: schemas.LocationCreate
 ) -> models.Restaurant:
-    db_restaurant.pending_location = new_location
+    db_location = _create_location(db, new_location)
+    db_restaurant.pending_location_id = db_location.id
     db_restaurant.location_change_pending = True
     db.commit()
     db.refresh(db_restaurant)
     logger.info(
-        "Location change requested for restaurant id=%d: pending='%s'",
+        "Location change requested for restaurant id=%d: pending_location_id=%d",
         db_restaurant.id,
-        new_location,
+        db_location.id,
     )
     return db_restaurant
 
@@ -227,16 +263,23 @@ def request_location_change(
 def approve_location_change(
     db: Session, db_restaurant: models.Restaurant
 ) -> models.Restaurant:
-    if db_restaurant.pending_location:
-        db_restaurant.location = db_restaurant.pending_location
-    db_restaurant.pending_location = None
-    db_restaurant.location_change_pending = False
+    if db_restaurant.pending_location_id and db_restaurant.location:
+        old_location_id = db_restaurant.location_id
+        db_restaurant.location_id = db_restaurant.pending_location_id
+        db_restaurant.pending_location_id = None
+        db_restaurant.location_change_pending = False
+        db.flush()
+        old_location = db.get(models.Location, old_location_id)
+        if old_location:
+            db.delete(old_location)
+    else:
+        db_restaurant.pending_location_id = None
+        db_restaurant.location_change_pending = False
     db.commit()
     db.refresh(db_restaurant)
     logger.info(
-        "Location change approved for restaurant id=%d: new location='%s'",
+        "Location change approved for restaurant id=%d",
         db_restaurant.id,
-        db_restaurant.location,
     )
     return db_restaurant
 
@@ -244,7 +287,11 @@ def approve_location_change(
 def reject_location_change(
     db: Session, db_restaurant: models.Restaurant
 ) -> models.Restaurant:
-    db_restaurant.pending_location = None
+    if db_restaurant.pending_location_id:
+        pending = db.get(models.Location, db_restaurant.pending_location_id)
+        if pending:
+            db.delete(pending)
+    db_restaurant.pending_location_id = None
     db_restaurant.location_change_pending = False
     db.commit()
     db.refresh(db_restaurant)
@@ -256,6 +303,10 @@ def reject_location_change(
 
 
 def delete_restaurant(db: Session, db_restaurant: models.Restaurant) -> None:
+    if db_restaurant.location:
+        db.delete(db_restaurant.location)
+    if db_restaurant.pending_location:
+        db.delete(db_restaurant.pending_location)
     db.delete(db_restaurant)
     db.commit()
     logger.info("Restaurant id=%d deleted from the database", db_restaurant.id)

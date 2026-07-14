@@ -5,7 +5,62 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
-use crate::{App, Screen, Focus, api::UserRole};
+use crate::{App, Screen, Focus, api};
+use crate::api::UserRole;
+
+fn location_detail_lines(loc: &api::Location) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled(" Location:    ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
+        Span::styled(loc.formatted.clone(), Style::default().fg(Color::White)),
+    ]));
+    if let Some(ref d) = loc.description {
+        lines.push(Line::from(vec![
+            Span::styled("   Description:", Style::default().fg(Color::Gray)),
+            Span::styled(format!(" {}", d), Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    if let (Some(lat), Some(lng)) = (loc.lat, loc.lng) {
+        lines.push(Line::from(vec![
+            Span::styled("   GPS:        ", Style::default().fg(Color::Gray)),
+            Span::styled(format!("{:.4}, {:.4}", lat, lng), Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    if let Some(ref a) = loc.address {
+        let mut addr = a.clone();
+        if let Some(ref c) = loc.city { addr = format!("{}, {}", addr, c); }
+        if let Some(ref s) = loc.state { addr = format!("{}, {}", addr, s); }
+        if let Some(ref z) = loc.zip_code { addr = format!("{} {}", addr, z); }
+        lines.push(Line::from(vec![
+            Span::styled("   Address:    ", Style::default().fg(Color::Gray)),
+            Span::styled(addr, Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    if let Some(ref r1) = loc.road_1 {
+        let r2 = loc.road_2.as_deref().unwrap_or("");
+        lines.push(Line::from(vec![
+            Span::styled("   Intersection:", Style::default().fg(Color::Gray)),
+            Span::styled(format!(" {} & {}", r1, r2), Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    if let Some(ref v) = loc.venue_name {
+        let mut venue = v.clone();
+        if let Some(ref s) = loc.stall_number {
+            venue = format!("{}, Stall {}", venue, s);
+        }
+        lines.push(Line::from(vec![
+            Span::styled("   Venue:      ", Style::default().fg(Color::Gray)),
+            Span::styled(venue, Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    if let Some(ref l) = loc.lot_name {
+        lines.push(Line::from(vec![
+            Span::styled("   Lot:        ", Style::default().fg(Color::Gray)),
+            Span::styled(format!(" {}", l), Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    lines
+}
 
 pub fn draw(f: &mut Frame, app: &App) {
     let size = f.area();
@@ -86,7 +141,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             "[Tab] Switch Focus  [Up/Down] Navigate  [D] Remove Favorite  [Ctrl+L] Logout  [Esc] Back"
         }
         Screen::AddRestaurant | Screen::EditRestaurant => {
-            "[Tab] Switch Field  [Space] Cycle Type/Status  [Enter] Save  [Esc] Cancel"
+            "[Tab] Switch Field  [Space] Cycle/Insert Space  [Enter] Save  [Esc] Cancel"
         }
     };
 
@@ -409,10 +464,6 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
                     Span::styled(r.cuisine_type.clone(), Style::default().fg(Color::White)),
                 ]),
                 Line::from(vec![
-                    Span::styled(" Location:    ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
-                    Span::styled(r.location.clone(), Style::default().fg(Color::White)),
-                ]),
-                Line::from(vec![
                     Span::styled(" Hours:       ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
                     Span::styled(format!("{} - {}", r.open_time, r.close_time), Style::default().fg(Color::White)),
                 ]),
@@ -432,13 +483,24 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
                 Line::from(Span::styled(menu, Style::default().fg(Color::Gray))),
             ];
 
+            let loc_lines = location_detail_lines(&r.location);
+            let insert_at = detail_text.len() - 6;
+            for (i, l) in loc_lines.into_iter().enumerate() {
+                detail_text.insert(insert_at + i, l);
+            }
+
             if r.location_change_pending {
-                let pending_loc = r.pending_location.clone().unwrap_or_default();
-                detail_text.push(Line::from(""));
-                detail_text.push(Line::from(vec![
-                    Span::styled(" Location Change Pending: ", Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)),
-                    Span::styled(pending_loc, Style::default().fg(Color::White)),
-                ]));
+                if let Some(ref ploc) = r.pending_location {
+                    detail_text.push(Line::from(""));
+                    detail_text.push(Line::from(vec![
+                        Span::styled(" Location Change Pending: ", Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)),
+                        Span::styled(ploc.formatted.clone(), Style::default().fg(Color::White)),
+                    ]));
+                    let mut pend_lines = location_detail_lines(ploc);
+                    for l in pend_lines.drain(..) {
+                        detail_text.push(l);
+                    }
+                }
             }
 
             let details_para = Paragraph::new(detail_text)
@@ -554,10 +616,6 @@ fn draw_my_restaurants_screen(f: &mut Frame, app: &App, area: Rect) {
                     Span::styled(r.cuisine_type.clone(), Style::default().fg(Color::White)),
                 ]),
                 Line::from(vec![
-                    Span::styled(" Location:    ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
-                    Span::styled(r.location.clone(), Style::default().fg(Color::White)),
-                ]),
-                Line::from(vec![
                     Span::styled(" Hours:       ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
                     Span::styled(format!("{} - {}", r.open_time, r.close_time), Style::default().fg(Color::White)),
                 ]),
@@ -577,13 +635,24 @@ fn draw_my_restaurants_screen(f: &mut Frame, app: &App, area: Rect) {
                 Line::from(Span::styled(menu, Style::default().fg(Color::Gray))),
             ];
 
+            let loc_lines = location_detail_lines(&r.location);
+            let insert_at = 4;
+            for (i, l) in loc_lines.into_iter().enumerate() {
+                detail_text.insert(insert_at + i, l);
+            }
+
             if r.location_change_pending {
-                let pending_loc = r.pending_location.clone().unwrap_or_default();
-                detail_text.push(Line::from(""));
-                detail_text.push(Line::from(vec![
-                    Span::styled(" Location Change Pending: ", Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)),
-                    Span::styled(pending_loc, Style::default().fg(Color::White)),
-                ]));
+                if let Some(ref ploc) = r.pending_location {
+                    detail_text.push(Line::from(""));
+                    detail_text.push(Line::from(vec![
+                        Span::styled(" Location Change Pending: ", Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)),
+                        Span::styled(ploc.formatted.clone(), Style::default().fg(Color::White)),
+                    ]));
+                    let mut pend_lines = location_detail_lines(ploc);
+                    for l in pend_lines.drain(..) {
+                        detail_text.push(l);
+                    }
+                }
             }
 
             let details_para = Paragraph::new(detail_text)
@@ -671,7 +740,7 @@ fn draw_favorites_screen(f: &mut Frame, app: &App, area: Rect) {
                 let desc = r.description.clone().unwrap_or_else(|| "No description provided.".to_string());
                 let menu = r.menu_items.clone().unwrap_or_else(|| "None listed".to_string());
 
-                let detail_text = vec![
+                let mut detail_text = vec![
                     Line::from(""),
                     Line::from(vec![
                         Span::styled(" Name:        ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
@@ -684,10 +753,6 @@ fn draw_favorites_screen(f: &mut Frame, app: &App, area: Rect) {
                     Line::from(vec![
                         Span::styled(" Cuisine:     ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
                         Span::styled(r.cuisine_type.clone(), Style::default().fg(Color::White)),
-                    ]),
-                    Line::from(vec![
-                        Span::styled(" Location:    ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
-                        Span::styled(r.location.clone(), Style::default().fg(Color::White)),
                     ]),
                     Line::from(vec![
                         Span::styled(" Hours:       ", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan)),
@@ -704,6 +769,11 @@ fn draw_favorites_screen(f: &mut Frame, app: &App, area: Rect) {
                     Line::from(Span::styled(" Menu Items:", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan))),
                     Line::from(Span::styled(menu, Style::default().fg(Color::Gray))),
                 ];
+                let loc_lines = location_detail_lines(&r.location);
+                let insert_at = 4;
+                for (i, l) in loc_lines.into_iter().enumerate() {
+                    detail_text.insert(insert_at + i, l);
+                }
 
                 let details_para = Paragraph::new(detail_text)
                     .block(details_block)
@@ -755,6 +825,17 @@ fn draw_form_screen(f: &mut Frame, app: &App, area: Rect) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Length(2),
         ])
         .split(inner_area);
@@ -775,9 +856,69 @@ fn draw_form_screen(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(cuisine_para, chunks[2]);
 
     let loc_style = if let Focus::FormLocation = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_block = Block::default().borders(Borders::ALL).title(" Location ").border_style(loc_style);
+    let loc_block = Block::default().borders(Borders::ALL).title(" Location (free-form) ").border_style(loc_style);
     let loc_para = Paragraph::new(app.form_location.clone()).block(loc_block);
     f.render_widget(loc_para, chunks[3]);
+
+    let loc_desc_style = if let Focus::FormLocationDesc = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_desc_block = Block::default().borders(Borders::ALL).title(" Location Description ").border_style(loc_desc_style);
+    let loc_desc_para = Paragraph::new(app.form_location_desc.clone()).block(loc_desc_block);
+    f.render_widget(loc_desc_para, chunks[4]);
+
+    let loc_lat_style = if let Focus::FormLocationLat = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_lat_block = Block::default().borders(Borders::ALL).title(" Latitude ").border_style(loc_lat_style);
+    let loc_lat_para = Paragraph::new(app.form_location_lat.clone()).block(loc_lat_block);
+    f.render_widget(loc_lat_para, chunks[5]);
+
+    let loc_lng_style = if let Focus::FormLocationLng = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_lng_block = Block::default().borders(Borders::ALL).title(" Longitude ").border_style(loc_lng_style);
+    let loc_lng_para = Paragraph::new(app.form_location_lng.clone()).block(loc_lng_block);
+    f.render_widget(loc_lng_para, chunks[6]);
+
+    let loc_addr_style = if let Focus::FormLocationAddress = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_addr_block = Block::default().borders(Borders::ALL).title(" Street Address ").border_style(loc_addr_style);
+    let loc_addr_para = Paragraph::new(app.form_location_address.clone()).block(loc_addr_block);
+    f.render_widget(loc_addr_para, chunks[7]);
+
+    let loc_city_style = if let Focus::FormLocationCity = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_city_block = Block::default().borders(Borders::ALL).title(" City ").border_style(loc_city_style);
+    let loc_city_para = Paragraph::new(app.form_location_city.clone()).block(loc_city_block);
+    f.render_widget(loc_city_para, chunks[8]);
+
+    let loc_state_style = if let Focus::FormLocationState = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_state_block = Block::default().borders(Borders::ALL).title(" State ").border_style(loc_state_style);
+    let loc_state_para = Paragraph::new(app.form_location_state.clone()).block(loc_state_block);
+    f.render_widget(loc_state_para, chunks[9]);
+
+    let loc_zip_style = if let Focus::FormLocationZip = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_zip_block = Block::default().borders(Borders::ALL).title(" ZIP Code ").border_style(loc_zip_style);
+    let loc_zip_para = Paragraph::new(app.form_location_zip.clone()).block(loc_zip_block);
+    f.render_widget(loc_zip_para, chunks[10]);
+
+    let loc_r1_style = if let Focus::FormLocationRoad1 = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_r1_block = Block::default().borders(Borders::ALL).title(" Intersection Road 1 ").border_style(loc_r1_style);
+    let loc_r1_para = Paragraph::new(app.form_location_road1.clone()).block(loc_r1_block);
+    f.render_widget(loc_r1_para, chunks[11]);
+
+    let loc_r2_style = if let Focus::FormLocationRoad2 = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_r2_block = Block::default().borders(Borders::ALL).title(" Intersection Road 2 ").border_style(loc_r2_style);
+    let loc_r2_para = Paragraph::new(app.form_location_road2.clone()).block(loc_r2_block);
+    f.render_widget(loc_r2_para, chunks[12]);
+
+    let loc_ven_style = if let Focus::FormLocationVenue = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_ven_block = Block::default().borders(Borders::ALL).title(" Venue / Mall Name ").border_style(loc_ven_style);
+    let loc_ven_para = Paragraph::new(app.form_location_venue.clone()).block(loc_ven_block);
+    f.render_widget(loc_ven_para, chunks[13]);
+
+    let loc_stall_style = if let Focus::FormLocationStall = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_stall_block = Block::default().borders(Borders::ALL).title(" Stall / Cart Number ").border_style(loc_stall_style);
+    let loc_stall_para = Paragraph::new(app.form_location_stall.clone()).block(loc_stall_block);
+    f.render_widget(loc_stall_para, chunks[14]);
+
+    let loc_lot_style = if let Focus::FormLocationLot = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let loc_lot_block = Block::default().borders(Borders::ALL).title(" Parking Lot Name ").border_style(loc_lot_style);
+    let loc_lot_para = Paragraph::new(app.form_location_lot.clone()).block(loc_lot_block);
+    f.render_widget(loc_lot_para, chunks[15]);
 
     let time_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -785,7 +926,7 @@ fn draw_form_screen(f: &mut Frame, app: &App, area: Rect) {
             Constraint::Percentage(50),
             Constraint::Percentage(50),
         ])
-        .split(chunks[4]);
+        .split(chunks[16]);
 
     let open_style = if let Focus::FormOpenTime = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
     let open_block = Block::default().borders(Borders::ALL).title(" Open Time (HH:MM:SS) ").border_style(open_style);
@@ -801,20 +942,20 @@ fn draw_form_screen(f: &mut Frame, app: &App, area: Rect) {
     let status_block = Block::default().borders(Borders::ALL).title(" Status (Press [Space] to toggle) ").border_style(status_style);
     let status_text = if app.form_open_status { "Open" } else { "Closed" };
     let status_para = Paragraph::new(status_text).block(status_block);
-    f.render_widget(status_para, chunks[5]);
+    f.render_widget(status_para, chunks[17]);
 
     let desc_style = if let Focus::FormDescription = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
     let desc_block = Block::default().borders(Borders::ALL).title(" Description ").border_style(desc_style);
     let desc_para = Paragraph::new(app.form_description.clone()).block(desc_block);
-    f.render_widget(desc_para, chunks[6]);
+    f.render_widget(desc_para, chunks[18]);
 
     let menu_style = if let Focus::FormMenuItems = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
     let menu_block = Block::default().borders(Borders::ALL).title(" Menu Items ").border_style(menu_style);
     let menu_para = Paragraph::new(app.form_menu_items.clone()).block(menu_block);
-    f.render_widget(menu_para, chunks[7]);
+    f.render_widget(menu_para, chunks[19]);
 
     let action_para = Paragraph::new("Press [Enter] to submit  -  [Esc] to discard changes")
         .alignment(ratatui::layout::Alignment::Center)
         .fg(Color::DarkGray);
-    f.render_widget(action_para, chunks[8]);
+    f.render_widget(action_para, chunks[20]);
 }

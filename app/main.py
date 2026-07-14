@@ -244,12 +244,11 @@ def read_restaurants(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ) -> List[models.Restaurant]:
+    if current_user.role == models.UserRole.CUSTOMER:
+        return crud.get_restaurants_by_owner(db=db, owner_id=current_user.id)
     effective_approved = is_approved
     if current_user.role == models.UserRole.CONSUMER:
         effective_approved = True
-    elif current_user.role == models.UserRole.CUSTOMER:
-        if is_approved is None:
-            effective_approved = None
     return crud.get_restaurants(
         db=db,
         name=name,
@@ -319,19 +318,23 @@ def update_restaurant(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Customers cannot change the restaurant name",
             )
-        update_data = restaurant_update.model_dump(exclude_unset=True)
-        if (
-            "location" in update_data
-            and db_restaurant.restaurant_type == models.RestaurantType.BRICK_AND_MORTAR
-        ):
-            new_location = update_data.pop("location")
-            crud.update_restaurant(
-                db=db,
-                db_restaurant=db_restaurant,
-                restaurant_update=schemas.RestaurantUpdate(**update_data),
-            )
-            return crud.request_location_change(
-                db=db, db_restaurant=db_restaurant, new_location=new_location
+        if restaurant_update.location is not None and db_restaurant.restaurant_type == models.RestaurantType.BRICK_AND_MORTAR:
+                non_loc_data = restaurant_update.model_dump(exclude={"location"}, exclude_unset=True)
+                crud.update_restaurant(
+                    db=db,
+                    db_restaurant=db_restaurant,
+                    restaurant_update=schemas.RestaurantUpdate(**non_loc_data),
+                )
+                loc_data = restaurant_update.location.model_dump(exclude_unset=True)
+                if "location_type" not in loc_data and db_restaurant.location:
+                    loc_data["location_type"] = db_restaurant.location.location_type
+                return crud.request_location_change(
+                    db=db, db_restaurant=db_restaurant,
+                    new_location=schemas.LocationCreate(**loc_data)
+                )
+        if restaurant_update.location is not None:
+            crud.update_restaurant_location(
+                db=db, db_restaurant=db_restaurant, location_update=restaurant_update.location
             )
         return crud.update_restaurant(
             db=db, db_restaurant=db_restaurant, restaurant_update=restaurant_update
