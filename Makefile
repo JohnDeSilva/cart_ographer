@@ -1,4 +1,4 @@
-.PHONY: setup run test lint format typecheck clean coverage run-tui
+.PHONY: setup run test lint format typecheck clean coverage run-tui setup-web run-web build-web test-web
 
 # Default target
 all: setup lint typecheck test
@@ -35,8 +35,25 @@ typecheck:
 run-tui:
 	cargo run --manifest-path tui_client/Cargo.toml
 
+# Setup web client dependencies
+setup-web:
+	cd web_client && npm install
+
+# Run web client in development mode
+run-web:
+	cd web_client && npm run dev
+
+# Build the web client static assets
+build-web:
+	cd web_client && npm run build
+
+# Run web client unit tests
+test-web:
+	cd web_client && npm run test
+
 # Clean up build/cache artifacts
 clean:
-	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov web_client/dist
 	find . -type d -name "__pycache__" -exec rm -r {} +
+
 
