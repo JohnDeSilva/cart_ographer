@@ -1,4 +1,4 @@
-.PHONY: setup run test lint format typecheck clean coverage
+.PHONY: setup run test lint format typecheck clean coverage run-tui
 
 # Default target
 all: setup lint typecheck test
@@ -31,7 +31,12 @@ format:
 typecheck:
 	uv run mypy app
 
+# Run the Rust TUI client
+run-tui:
+	cargo run --manifest-path tui_client/Cargo.toml
+
 # Clean up build/cache artifacts
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov
 	find . -type d -name "__pycache__" -exec rm -r {} +
+
