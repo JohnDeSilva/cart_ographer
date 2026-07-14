@@ -1,17 +1,24 @@
+import logging
+import os
 from datetime import time, timedelta, datetime, timezone
 from typing import List, Optional, Any, Dict
+
 import jwt
 from fastapi import FastAPI, Depends, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+
 from app import crud, models, schemas
 from app.database import engine, get_db, Base
+
+logger = logging.getLogger(__name__)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Restaurant Tracker API", version="0.1.0")
+app = FastAPI(title="Restaurant Directory API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,7 +35,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
-def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    data: Dict[str, Any], expires_delta: Optional[timedelta] = None
+) -> str:
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -73,11 +82,32 @@ def get_current_admin(
     return current_user
 
 
+def get_current_customer(
+    current_user: models.User = Depends(get_current_user),
+) -> models.User:
+    if current_user.role != models.UserRole.CUSTOMER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only restaurant owners can perform this action",
+        )
+    return current_user
+
+
+def get_current_consumer(
+    current_user: models.User = Depends(get_current_user),
+) -> models.User:
+    if current_user.role != models.UserRole.CONSUMER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only consumers can perform this action",
+        )
+    return current_user
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     db = next(get_db())
     try:
-        # Seed default admin user
         if not crud.get_user_by_username(db, "admin"):
             crud.create_user(
                 db,
@@ -87,16 +117,17 @@ def on_startup() -> None:
                     role=models.UserRole.ADMIN,
                 ),
             )
-        # Seed default customer user
-        if not crud.get_user_by_username(db, "customer"):
+            logger.info("Seeded default admin user into the database")
+        if not crud.get_user_by_username(db, "consumer"):
             crud.create_user(
                 db,
                 schemas.UserCreate(
-                    username="customer",
-                    password="customerpassword",
-                    role=models.UserRole.CUSTOMER,
+                    username="consumer",
+                    password="consumerpassword",
+                    role=models.UserRole.CONSUMER,
                 ),
             )
+            logger.info("Seeded default consumer user into the database")
     finally:
         db.close()
 
@@ -115,11 +146,16 @@ def signup(user: schemas.UserCreate, db: Session = Depends(get_db)) -> models.Us
 
 
 @app.post("/auth/login", response_model=schemas.Token)
-def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def login(
+    user_credentials: schemas.UserLogin, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     user = crud.get_user_by_username(db, username=user_credentials.username)
     if not user or not crud.verify_password(
         user_credentials.password, user.hashed_password
     ):
+        logger.warning(
+            "Failed login attempt for username: '%s'", user_credentials.username
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -130,6 +166,7 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)) ->
         data={"sub": user.username, "role": user.role},
         expires_delta=access_token_expires,
     )
+    logger.debug("Login successful for username: '%s'", user_credentials.username)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -150,8 +187,7 @@ def reset_password(
     )
 
 
-
-# Restaurant routes
+# Admin restaurant routes
 @app.post(
     "/restaurants",
     response_model=schemas.RestaurantResponse,
@@ -162,43 +198,84 @@ def create_restaurant(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_admin),
 ) -> models.Restaurant:
-    return crud.create_restaurant(db=db, restaurant=restaurant)
+    created = crud.create_restaurant(db=db, restaurant=restaurant)
+    created.is_approved = True
+    db.commit()
+    db.refresh(created)
+    return created
 
 
+# Customer restaurant submission
+@app.post(
+    "/restaurants/submit",
+    response_model=schemas.RestaurantResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def submit_restaurant(
+    restaurant: schemas.RestaurantSubmit,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_customer),
+) -> models.Restaurant:
+    return crud.submit_restaurant(
+        db=db, restaurant=restaurant, owner_id=current_user.id
+    )
+
+
+# Read restaurants - with role-based filtering
 @app.get("/restaurants", response_model=List[schemas.RestaurantResponse])
 def read_restaurants(
-    name: Optional[str] = Query(
-        None, description="Filter by partial restaurant name (case-insensitive)"
-    ),
-    type: Optional[models.RestaurantType] = Query(
+    name: Optional[str] = Query(None, description="Filter by partial restaurant name"),
+    restaurant_type: Optional[models.RestaurantType] = Query(
         None, alias="restaurant_type", description="Filter by restaurant type"
     ),
-    open_time: Optional[time] = Query(
-        None, description="Filter by exact open time (HH:MM:SS)"
-    ),
-    close_time: Optional[time] = Query(
-        None, description="Filter by exact close time (HH:MM:SS)"
-    ),
+    cuisine_type: Optional[str] = Query(None, description="Filter by cuisine type"),
+    open_time: Optional[time] = Query(None, description="Filter by exact open time"),
+    close_time: Optional[time] = Query(None, description="Filter by exact close time"),
     open_status: Optional[bool] = Query(None, description="Filter by open status"),
     is_open_at: Optional[time] = Query(
-        None, description="Filter by whether restaurant is open at this specific time"
+        None, description="Filter by open at this specific time"
+    ),
+    menu_items: Optional[str] = Query(None, description="Filter by menu items"),
+    is_approved: Optional[bool] = Query(
+        None, description="Filter by approval status (admin only)"
     ),
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ) -> List[models.Restaurant]:
+    effective_approved = is_approved
+    if current_user.role == models.UserRole.CONSUMER:
+        effective_approved = True
+    elif current_user.role == models.UserRole.CUSTOMER:
+        if is_approved is None:
+            effective_approved = None
     return crud.get_restaurants(
         db=db,
         name=name,
-        restaurant_type=type,
+        restaurant_type=restaurant_type,
+        cuisine_type=cuisine_type,
         open_time=open_time,
         close_time=close_time,
         open_status=open_status,
         is_open_at=is_open_at,
+        is_approved=effective_approved,
+        menu_items=menu_items,
         skip=skip,
         limit=limit,
     )
+
+
+# Customer's own restaurants
+@app.get(
+    "/me/restaurants",
+    response_model=List[schemas.RestaurantResponse],
+)
+def read_my_restaurants(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_customer),
+) -> List[models.Restaurant]:
+    return crud.get_restaurants_by_owner(db=db, owner_id=current_user.id)
 
 
 @app.get("/restaurants/{restaurant_id}", response_model=schemas.RestaurantResponse)
@@ -210,6 +287,8 @@ def read_restaurant(
     db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
     if db_restaurant is None:
         raise HTTPException(status_code=404, detail="Restaurant not found")
+    if current_user.role == models.UserRole.CONSUMER and not db_restaurant.is_approved:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
     return db_restaurant
 
 
@@ -218,31 +297,123 @@ def update_restaurant(
     restaurant_id: int,
     restaurant_update: schemas.RestaurantUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_admin),
+    current_user: models.User = Depends(get_current_user),
 ) -> models.Restaurant:
     db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
     if db_restaurant is None:
         raise HTTPException(status_code=404, detail="Restaurant not found")
-    return crud.update_restaurant(
-        db=db, db_restaurant=db_restaurant, restaurant_update=restaurant_update
+
+    if current_user.role == models.UserRole.ADMIN:
+        return crud.update_restaurant(
+            db=db, db_restaurant=db_restaurant, restaurant_update=restaurant_update
+        )
+
+    if current_user.role == models.UserRole.CUSTOMER:
+        if db_restaurant.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only update your own restaurants",
+            )
+        if restaurant_update.name is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Customers cannot change the restaurant name",
+            )
+        update_data = restaurant_update.model_dump(exclude_unset=True)
+        if (
+            "location" in update_data
+            and db_restaurant.restaurant_type == models.RestaurantType.BRICK_AND_MORTAR
+        ):
+            new_location = update_data.pop("location")
+            crud.update_restaurant(
+                db=db,
+                db_restaurant=db_restaurant,
+                restaurant_update=schemas.RestaurantUpdate(**update_data),
+            )
+            return crud.request_location_change(
+                db=db, db_restaurant=db_restaurant, new_location=new_location
+            )
+        return crud.update_restaurant(
+            db=db, db_restaurant=db_restaurant, restaurant_update=restaurant_update
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to update restaurants",
     )
 
 
 @app.patch(
-    "/restaurants/{restaurant_id}/status", response_model=schemas.RestaurantResponse
+    "/restaurants/{restaurant_id}/status",
+    response_model=schemas.RestaurantResponse,
 )
 def update_restaurant_status(
     restaurant_id: int,
     status_update: schemas.RestaurantStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> models.Restaurant:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
+    if db_restaurant is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+
+    if current_user.role == models.UserRole.ADMIN:
+        return crud.update_restaurant_status(
+            db=db, db_restaurant=db_restaurant, open_status=status_update.open_status
+        )
+
+    if current_user.role == models.UserRole.CUSTOMER:
+        if db_restaurant.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only toggle status on your own restaurants",
+            )
+        return crud.update_restaurant_status(
+            db=db, db_restaurant=db_restaurant, open_status=status_update.open_status
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to update restaurant status",
+    )
+
+
+# Admin approval endpoints
+@app.patch(
+    "/restaurants/{restaurant_id}/approve",
+    response_model=schemas.RestaurantResponse,
+)
+def approve_restaurant(
+    restaurant_id: int,
+    approval: schemas.RestaurantApproval,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_admin),
 ) -> models.Restaurant:
     db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
     if db_restaurant is None:
         raise HTTPException(status_code=404, detail="Restaurant not found")
-    return crud.update_restaurant_status(
-        db=db, db_restaurant=db_restaurant, open_status=status_update.open_status
-    )
+    if approval.is_approved:
+        return crud.approve_restaurant(db=db, db_restaurant=db_restaurant)
+    return db_restaurant
+
+
+@app.patch(
+    "/restaurants/{restaurant_id}/approve-location",
+    response_model=schemas.RestaurantResponse,
+)
+def approve_location_change(
+    restaurant_id: int,
+    location_approval: schemas.LocationApproval,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin),
+) -> models.Restaurant:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
+    if db_restaurant is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    if location_approval.approve:
+        return crud.approve_location_change(db=db, db_restaurant=db_restaurant)
+    else:
+        return crud.reject_location_change(db=db, db_restaurant=db_restaurant)
 
 
 @app.delete("/restaurants/{restaurant_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -257,10 +428,56 @@ def delete_restaurant(
     crud.delete_restaurant(db=db, db_restaurant=db_restaurant)
 
 
-# Mount static web client files at root if built folder is present
-import os
-from fastapi.staticfiles import StaticFiles
+# Favorites routes (Consumer only)
+@app.post(
+    "/favorites",
+    response_model=schemas.FavoriteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_favorite(
+    favorite_data: schemas.FavoriteCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_consumer),
+) -> models.Favorite:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=favorite_data.restaurant_id)
+    if db_restaurant is None or not db_restaurant.is_approved:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    return crud.add_favorite(
+        db=db, consumer_id=current_user.id, restaurant_id=favorite_data.restaurant_id
+    )
 
+
+@app.delete(
+    "/favorites/{favorite_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_favorite(
+    favorite_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_consumer),
+) -> None:
+    db_favorite = crud.get_favorite_by_identifier(db, favorite_id=favorite_id)
+    if db_favorite is None:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+    if db_favorite.consumer_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only remove your own favorites",
+        )
+    crud.remove_favorite(db=db, favorite_id=favorite_id)
+
+
+@app.get(
+    "/favorites",
+    response_model=List[schemas.FavoriteResponse],
+)
+def read_favorites(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_consumer),
+) -> List[models.Favorite]:
+    return crud.get_favorites_by_consumer(db=db, consumer_id=current_user.id)
+
+
+# Mount static web client files at root if built folder is present
 if os.path.exists("web_client/dist"):
     app.mount("/", StaticFiles(directory="web_client/dist", html=True), name="static")
-
