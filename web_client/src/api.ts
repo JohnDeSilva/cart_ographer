@@ -1,7 +1,5 @@
 export type RestaurantType = 'Food Stall' | 'Food Truck' | 'Brick and mortar Restaurant';
 
-pubtype UserRole = 'Admin' | 'Customer';
-// Wait, 'pubtype' is not a valid typescript keyword, it is 'export type UserRole = ...'
 export type UserRole = 'Admin' | 'Customer';
 
 export interface Restaurant {
