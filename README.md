@@ -17,9 +17,9 @@ graph TD
         API[FastAPI Backend]
     end
 
-    subgraph Client Clients
+    subgraph Clients
         TUI[Rust TUI Client]
-        Web[React Web client]
+        Web[React Web Client]
     end
 
     TUI -->|HTTP requests + Bearer JWT| API
@@ -37,6 +37,12 @@ Upon database startup, two default accounts are auto-seeded:
 
 ---
 
+## 🔁 Client Feature Parity
+
+The TUI and Web UI are two faces of the same product and are kept in strict feature parity. Every capability available in one client is available in the other. Presentation differences (keyboard shortcuts vs. buttons, list+pane vs. table) are expected — capability gaps are not. When a new backend endpoint is added, **both clients must be updated in the same change**. See `.agents/AGENTS.md` for the full parity policy and feature baseline table.
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -48,7 +54,21 @@ Upon database startup, two default accounts are auto-seeded:
 
 ## 📦 1. Central Backend (Python FastAPI)
 
-The backend handles JWT encoding, user passwords hashing via `bcrypt`, and database transactions.
+The backend handles JWT encoding, password hashing via `bcrypt`, and all database transactions via SQLAlchemy.
+
+### API Query Filters
+
+`GET /restaurants` supports the following optional query parameters:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `name` | `string` | Partial, case-insensitive name search |
+| `restaurant_type` | `string` | Exact match: `Food Stall`, `Food Truck`, `Brick and mortar Restaurant` |
+| `open_time` | `HH:MM:SS` | Exact open time match |
+| `close_time` | `HH:MM:SS` | Exact close time match |
+| `open_status` | `bool` | Filter by manually-toggled open/closed flag |
+| `is_open_at` | `HH:MM:SS` | Returns restaurants open at the given time, including those trading past midnight |
+| `skip` / `limit` | `int` | Pagination offsets (defaults: `0` / `100`) |
 
 ### Running the Backend Server
 ```bash
@@ -64,11 +84,17 @@ make run
 # Run pytest automated test suite
 make test
 
+# Run tests and generate a branch-coverage report (must stay ≥ 90%)
+make coverage
+
 # Run strict mypy type checking
 make typecheck
 
 # Lint the codebase using Ruff
 make lint
+
+# Auto-format code using Ruff
+make format
 ```
 
 ---
