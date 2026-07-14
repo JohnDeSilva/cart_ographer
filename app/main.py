@@ -255,3 +255,12 @@ def delete_restaurant(
     if db_restaurant is None:
         raise HTTPException(status_code=404, detail="Restaurant not found")
     crud.delete_restaurant(db=db, db_restaurant=db_restaurant)
+
+
+# Mount static web client files at root if built folder is present
+import os
+from fastapi.staticfiles import StaticFiles
+
+if os.path.exists("web_client/dist"):
+    app.mount("/", StaticFiles(directory="web_client/dist", html=True), name="static")
+
