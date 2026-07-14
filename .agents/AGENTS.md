@@ -1,30 +1,34 @@
-# 🤖 Developer Guidelines & AI Agent Rules
+# Developer Guidelines & AI Agent Rules
 
-This document establishes the repository-wide standards, architectural constraints, layout structure, and development workflows for AI agents working on **cart_ographer** — a multi-client system for tracking local food vendors (food stalls, food trucks, and brick-and-mortar restaurants).
+This document establishes the repository-wide standards, architectural constraints, layout structure, and development workflows for AI agents working on **cartographer** — a multi-client restaurant directory system with three user roles (Admin, Customer, Consumer).
 
 ---
 
-## 🏛️ Repository Architecture
+## Repository Architecture
 
 The system is structured as three independently developed but tightly integrated components, all communicating over HTTP+JWT:
 
 ```
 cart_ographer/
-├── app/                    # 🐍 Python FastAPI Backend
+├── app/                    # Python FastAPI Backend
+│   ├── __init__.py         # Package init
 │   ├── main.py             # Routes, JWT auth middleware, startup seeding, static mount
 │   ├── crud.py             # All DB transactions — the ONLY place SQLAlchemy writes happen
-│   ├── models.py           # SQLAlchemy ORM table definitions (Restaurant, User, UserRole)
+│   ├── models.py           # SQLAlchemy ORM table definitions (Restaurant, User, UserRole, Favorite)
 │   ├── schemas.py          # Pydantic request/response models for serialisation
 │   └── database.py         # Engine, SessionLocal, Base, get_db dependency
-├── tests/                  # 🧪 Backend pytest suite
+├── docs/                   # Design documentation
+│   └── initial_plan.md     # Original project plan
+├── tests/                  # Backend pytest suite
+│   ├── __init__.py
 │   ├── conftest.py         # In-memory SQLite fixtures, dependency overrides
-│   └── test_restaurants.py # Integration tests for all API routes
-├── tui_client/             # 🦀 Rust terminal client (ratatui + crossterm + tokio)
+│   └── test_restaurants.py # Integration tests for all API routes (53 tests)
+├── tui_client/             # Rust terminal client (ratatui + crossterm + tokio)
 │   └── src/
 │       ├── main.rs         # App state, key event loop, async runtime, unit tests
 │       ├── api.rs          # All reqwest HTTP calls to the FastAPI backend
 │       └── ui.rs           # Widget layouts and ratatui rendering routines
-├── web_client/             # ⚛️ React SPA (Vite + TypeScript + Vitest)
+├── web_client/             # React SPA (Vite + TypeScript + Vitest)
 │   └── src/
 │       ├── App.tsx         # All views, state management, auth flow
 │       ├── api.ts          # Fetch wrapper with localStorage JWT token caching
@@ -45,13 +49,13 @@ cart_ographer/
 
 ---
 
-## 📐 Code Standards & Style
+## Code Standards & Style
 
 ### 1. Variable Naming — Strict No-Abbreviation Rule
 
 Names must communicate intent without requiring surrounding context. Use full, descriptive terms everywhere — function arguments, loop variables, local bindings, and struct fields alike.
 
-| ❌ Do NOT write | ✅ Write instead |
+| Do NOT write | Write instead |
 |---|---|
 | `db`, `conn` | `database`, `database_session`, `connection` |
 | `r_id`, `rest` | `restaurant_identifier`, `restaurant` |
@@ -111,7 +115,7 @@ Linting is non-negotiable. All warnings must be resolved — do not suppress lin
 
 ---
 
-## 📋 Logging Standards
+## Logging Standards
 
 Logging is treated as a first-class concern. It provides observability into production behaviour without a debugger.
 
@@ -139,6 +143,9 @@ Always use the module-level `__name__` logger. Never create a root logger or pas
 | Authentication failures | `WARNING` | `"Failed login attempt for username: '%s'"` |
 | Unexpected errors / exceptions | `ERROR` | Always include `exc_info=True` |
 | Password resets | `INFO` | `"Password reset completed for username: '%s'"` |
+| Restaurant approval / rejection | `INFO` | `"Restaurant '%s' (id=%d) approved by admin"` |
+| Location change requests | `INFO` | `"Location change requested for restaurant id=%d: pending='%s'"` |
+| Favorites management | `INFO` | `"Favorite added: consumer_id=%d, restaurant_id=%d"` |
 
 #### What NOT to Log
 - Plain-text passwords or tokens at any level — ever.
@@ -149,7 +156,7 @@ Always use the module-level `__name__` logger. Never create a root logger or pas
 Use `eprintln!` for structured debug output routed to stderr, or integrate the `tracing` crate if more structured logging is introduced. Log:
 - Backend connection errors with the full error message.
 - HTTP response status codes for non-2xx responses.
-- State transitions between views (e.g., `Login` → `Dashboard`).
+- State transitions between views (e.g., `Login` to `Dashboard`).
 
 ### TypeScript (`web_client/`)
 
@@ -159,7 +166,7 @@ Use `console.error()` for caught fetch/network errors. Do **not** use `console.l
 
 ---
 
-## 🧪 Testing Standards
+## Testing Standards
 
 Testing is the primary safety net for this codebase. Tests are written **before** implementation. A feature is not done until its tests pass.
 
@@ -176,6 +183,7 @@ Testing is the primary safety net for this codebase. Tests are written **before*
 - **In-memory SQLite**: All tests use an in-memory SQLite database (`sqlite:///:memory:` with `StaticPool`) — never the production `restaurants.db`.
 - **FastAPI dependency overrides**: `conftest.py` overrides `get_db` to inject the test session, and `get_current_user`/`get_current_admin` to bypass JWT validation in most tests.
 - **Auth integration tests**: When testing real authentication behaviour, **temporarily remove** the dependency overrides (as in `test_user_authentication_flow`) and restore them in a `finally` block.
+- The test suite contains **53 tests** with **97.2% branch coverage**.
 
 #### Naming Convention
 
@@ -184,6 +192,7 @@ Testing is the primary safety net for this codebase. Tests are written **before*
 def test_filter_restaurants_by_midnight_crossing_schedule() -> None: ...
 def test_customer_role_cannot_create_restaurant() -> None: ...
 def test_login_fails_with_incorrect_password() -> None: ...
+def test_consumer_only_sees_approved_restaurants_list() -> None: ...
 
 # Bad — describes implementation, not behaviour
 def test_crud_function() -> None: ...
@@ -193,10 +202,10 @@ def test_route_handler() -> None: ...
 #### What to Test
 
 Every route handler in `app/main.py` must have tests covering:
-- ✅ The happy path (expected success case).
-- ✅ The 404 path (resource not found).
-- ✅ The 401/403 path (unauthenticated and unauthorised access).
-- ✅ Edge cases specific to the domain logic (e.g., midnight-crossing `is_open_at` filter).
+- The happy path (expected success case).
+- The 404 path (resource not found).
+- The 401/403 path (unauthenticated and unauthorised access).
+- Edge cases specific to the domain logic (e.g., midnight-crossing `is_open_at` filter, location change approval flow, favorites ownership checks).
 
 Every CRUD function in `app/crud.py` must be exercised through the integration test suite — isolated unit tests for CRUD are only needed for logic that cannot be reached via the API.
 
@@ -238,7 +247,7 @@ make test-web
 
 ---
 
-## 🔄 Mandatory Developer Workflow
+## Mandatory Developer Workflow
 
 Every change to this codebase, regardless of size, must follow this sequence. No exceptions.
 
@@ -252,7 +261,7 @@ Every change to this codebase, regardless of size, must follow this sequence. No
 
 1. **Write the test first** — describe the new or corrected behaviour in a test that currently fails.
 2. **Implement** the minimum code change in `app/` (or the appropriate client) to make the test pass.
-3. **Refine** until `make test` and `make coverage` both pass with ≥ 90% coverage.
+3. **Refine** until `make test` and `make coverage` both pass with >= 90% coverage.
 
 ### Step 3: Verification Sequence
 
@@ -260,8 +269,8 @@ Run all of the following after **every change** before committing:
 
 ```bash
 # Python backend
-make test        # pytest — all tests must pass
-make coverage    # coverage must remain ≥ 90%
+make test        # pytest — all 53 tests must pass
+make coverage    # coverage must remain >= 90%
 make lint        # ruff — zero warnings
 make typecheck   # mypy strict — zero errors
 
@@ -283,6 +292,7 @@ If your change affects any of the following, update the corresponding documentat
 | New Makefile target | `README.md` commands section |
 | Changed keyboard shortcut in TUI | `README.md` TUI controls section |
 | New environment variable or config option | `README.md` prerequisites/config section |
+| New user role or RBAC change | Both `README.md` and `.agents/AGENTS.md` domain knowledge |
 
 ### Step 5: Commits
 
@@ -301,16 +311,21 @@ chore(deps): bump ratatui to 0.29.0
 
 ---
 
-## 🔑 Domain Knowledge
+## Domain Knowledge
 
 ### User Roles & RBAC
 
 | Role | Permissions |
 |---|---|
-| `Admin` | Full CRUD on restaurants; all auth endpoints |
-| `Customer` | Read-only (`GET /restaurants`, `GET /restaurants/{id}`) |
+| `Admin` | Full CRUD on all restaurants; approve/reject submitted restaurants (`PATCH /restaurants/{id}/approve`); approve/reject location changes (`PATCH /restaurants/{id}/approve-location`); all auth endpoints |
+| `Customer` | Submit restaurants for approval (`POST /restaurants/submit`); update own restaurant info (except name); toggle own restaurant open/closed status (`PATCH /restaurants/{id}/status`); list own restaurants (`GET /me/restaurants`); request location changes for Brick & Mortar restaurants |
+| `Consumer` | View only approved restaurants (`GET /restaurants`, `GET /restaurants/{id}`); manage personal favorites (`GET/POST /favorites`, `DELETE /favorites/{id}`) |
 
-Default seed accounts created at startup: `admin` / `adminpassword` and `customer` / `customerpassword`. These are seeded in the `on_startup` event in `app/main.py` and must be idempotent (check before inserting).
+Default seed accounts created at startup:
+- `admin` / `adminpassword` (Admin role)
+- `consumer` / `consumerpassword` (Consumer role)
+
+These are seeded in the `on_startup` event in `app/main.py` and must be idempotent (check before inserting).
 
 ### Restaurant Model
 
@@ -318,12 +333,27 @@ Default seed accounts created at startup: `admin` / `adminpassword` and `custome
 |---|---|---|
 | `id` | `int` | Auto-incrementing primary key |
 | `name` | `str` | Indexed; supports partial case-insensitive search |
-| `restaurant_type` | `RestaurantType` enum | `Food Stall`, `Food Truck`, `Brick and mortar Restaurant` |
+| `restaurant_type` | `RestaurantType` enum | `Food Stall`, `Food Truck`, `Food Cart`, `Brick and mortar Restaurant` |
+| `cuisine_type` | `str` | Free-form cuisine description; supports partial case-insensitive search |
 | `location` | `str` | Free-form address string |
 | `open_time` | `time` | Stored as SQL `TIME` |
 | `close_time` | `time` | Stored as SQL `TIME` |
 | `open_status` | `bool` | Manually toggled; defaults `False` |
 | `description` | `Optional[str]` | Nullable free-text |
+| `menu_items` | `Optional[str]` | Free-form menu items list; supports partial case-insensitive search |
+| `is_approved` | `bool` | Admin approval flag; defaults `False` |
+| `owner_id` | `Optional[int]` | Foreign key to `users.id`; links Customer owners to their restaurants |
+| `pending_location` | `Optional[str]` | Pending new location awaiting admin approval |
+| `location_change_pending` | `bool` | Flag indicating a location change is awaiting admin approval |
+
+### Favorite Model
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `int` | Auto-incrementing primary key |
+| `consumer_id` | `int` | Foreign key to `users.id` (Consumer role only) |
+| `restaurant_id` | `int` | Foreign key to `restaurants.id` |
+| | | Unique constraint on `(consumer_id, restaurant_id)` to prevent duplicates |
 
 ### Time Filter Edge Case — Midnight Crossing
 
@@ -333,19 +363,35 @@ The `is_open_at` query parameter handles restaurants whose `close_time` is earli
 
 This logic is non-trivial. Any changes to it **require** corresponding test cases that exercise boundary conditions at midnight.
 
+### Location Change Flow
+
+When a Customer (restaurant owner) updates the location of a `Brick and mortar Restaurant`, the change is not applied directly. Instead:
+1. The new location is stored in `pending_location` and `location_change_pending` is set to `True`.
+2. An Admin must approve the change via `PATCH /restaurants/{id}/approve-location`.
+3. If approved, `pending_location` overwrites `location` and the pending fields are cleared.
+4. If rejected, `pending_location` is cleared and `location` remains unchanged.
+5. For `Food Truck` and `Food Cart` types, location changes are applied directly without admin approval.
+
+### Restaurant Approval Flow
+
+1. Customers submit restaurants via `POST /restaurants/submit` with `is_approved = False`.
+2. Admins approve or skip via `PATCH /restaurants/{id}/approve`.
+3. Only approved restaurants are visible to Consumers.
+4. Admin-created restaurants (via `POST /restaurants`) are auto-approved.
+
 ### JWT Authentication
 
 - Tokens are signed with `HS256` using the secret defined in `app/main.py`.
 - Token expiry is 60 minutes (`ACCESS_TOKEN_EXPIRE_MINUTES`).
 - The `sub` claim carries the `username`; the `role` claim carries the user role string.
-- `get_current_user` and `get_current_admin` are FastAPI dependency functions — use them as `Depends()` arguments on routes, never call them directly.
+- `get_current_user`, `get_current_admin`, `get_current_customer`, and `get_current_consumer` are FastAPI dependency functions — use them as `Depends()` arguments on routes, never call them directly.
 
-> [!CAUTION]
+> **CAUTION**
 > The `SECRET_KEY` in `app/main.py` is currently a hardcoded placeholder. Do not commit real credentials. If making this production-ready, move secrets to environment variables and document the required env vars in `README.md`.
 
 ---
 
-## 🔁 Client Feature Parity
+## Client Feature Parity
 
 The TUI (`tui_client/`) and the Web UI (`web_client/`) are two faces of the same product. A user switching between them should encounter no functional surprise — every capability that exists in one client must exist in the other, unless the medium makes it genuinely impractical (see exceptions below).
 
@@ -355,17 +401,29 @@ Both clients must always implement all of the following:
 
 | Feature | Backend endpoint(s) | TUI | Web UI |
 |---|---|---|---|
-| Login with username & password | `POST /auth/login` | ✅ | ✅ |
-| Signup as Customer or Admin | `POST /auth/signup` | ✅ | ✅ |
-| Reset own password | `POST /auth/reset-password` | ✅ | ✅ |
-| Logout / clear session | (local token discard) | ✅ | ✅ |
-| List all restaurants | `GET /restaurants` | ✅ | ✅ |
-| Filter restaurants by name (partial, case-insensitive) | `GET /restaurants?name=` | ✅ | ✅ |
-| View restaurant detail (all fields) | `GET /restaurants/{id}` | ✅ | ✅ |
-| Create a restaurant *(Admin only)* | `POST /restaurants` | ✅ | ✅ |
-| Edit a restaurant *(Admin only)* | `PUT /restaurants/{id}` | ✅ | ✅ |
-| Toggle open/closed status *(Admin only)* | `PATCH /restaurants/{id}/status` | ✅ | ✅ |
-| Delete a restaurant *(Admin only)* | `DELETE /restaurants/{id}` | ✅ | ✅ |
+| Login with username & password | `POST /auth/login` |  |  |
+| Signup as any role (Admin, Customer, Consumer) | `POST /auth/signup` |  |  |
+| Reset own password | `POST /auth/reset-password` |  |  |
+| Logout / clear session | (local token discard) |  |  |
+| List all restaurants (role-filtered) | `GET /restaurants` |  |  |
+| Filter restaurants by name (partial, case-insensitive) | `GET /restaurants?name=` |  |  |
+| Filter restaurants by cuisine type | `GET /restaurants?cuisine_type=` |  |  |
+| Filter restaurants by menu items | `GET /restaurants?menu_items=` |  |  |
+| Filter restaurants by approval status | `GET /restaurants?is_approved=` |  |  |
+| View restaurant detail (all fields) | `GET /restaurants/{id}` |  |  |
+| Create a restaurant *(Admin only)* | `POST /restaurants` |  |  |
+| Submit a restaurant for approval *(Customer only)* | `POST /restaurants/submit` |  |  |
+| Edit a restaurant *(Admin)* | `PUT /restaurants/{id}` |  |  |
+| Edit own restaurant *(Customer, except name)* | `PUT /restaurants/{id}` |  |  |
+| Toggle open/closed status *(Admin)* | `PATCH /restaurants/{id}/status` |  |  |
+| Toggle own open/closed status *(Customer)* | `PATCH /restaurants/{id}/status` |  |  |
+| Delete a restaurant *(Admin only)* | `DELETE /restaurants/{id}` |  |  |
+| Approve/reject submitted restaurant *(Admin only)* | `PATCH /restaurants/{id}/approve` |  |  |
+| Approve/reject location change *(Admin only)* | `PATCH /restaurants/{id}/approve-location` |  |  |
+| List own restaurants *(Customer only)* | `GET /me/restaurants` |  |  |
+| Add a restaurant to favorites *(Consumer only)* | `POST /favorites` |  |  |
+| Remove a favorite *(Consumer only)* | `DELETE /favorites/{id}` |  |  |
+| List favorites *(Consumer only)* | `GET /favorites` |  |  |
 
 ### Adding New Features
 
@@ -381,21 +439,23 @@ Medium constraints mean some features will look or behave differently — that i
 
 | Scenario | Acceptable divergence |
 |---|---|
-| The Web UI uses a modal form; the TUI uses a full-screen form view | ✅ Different presentation, same capability |
-| The TUI uses keyboard shortcuts; the Web UI uses buttons | ✅ Different interaction model, same action |
-| The Web UI displays a data table; the TUI uses a list + detail pane layout | ✅ Different layout, same data exposed |
-| A filter exists in the Web UI but the TUI has no equivalent search | ❌ Missing capability — must be added |
-| An Admin action is available in the TUI but absent from the Web UI | ❌ Missing capability — must be added |
+| The Web UI uses a modal form; the TUI uses a full-screen form view | Different presentation, same capability |
+| The TUI uses keyboard shortcuts; the Web UI uses buttons | Different interaction model, same action |
+| The Web UI displays a data table; the TUI uses a list + detail pane layout | Different layout, same data exposed |
+| A filter exists in the Web UI but the TUI has no equivalent search | Missing capability — must be added |
+| An Admin action is available in the TUI but absent from the Web UI | Missing capability — must be added |
 
 ### RBAC Must Be Mirrored
 
 Role-based access control must be enforced consistently in both clients:
-- Admin-only actions (create, edit, delete, toggle status) must be **hidden or disabled** in the UI when the authenticated user holds the `Customer` role.
+- Admin-only actions (create, delete, approve restaurants, approve locations) must be **hidden or disabled** in the UI when the authenticated user holds the `Customer` or `Consumer` role.
+- Customer actions (submit restaurant, edit own, toggle own status) must be **hidden or disabled** for `Admin` and `Consumer` roles.
+- Consumer actions (favorites management) must be **hidden or disabled** for `Admin` and `Customer` roles.
 - Neither client should rely solely on the backend 403 response as the first line of defence — guard the UI proactively based on the stored `role` claim.
 
 ---
 
-## 🚫 Hard Constraints
+## Hard Constraints
 
 These rules must never be violated under any circumstances:
 
