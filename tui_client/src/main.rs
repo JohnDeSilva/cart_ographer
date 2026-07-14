@@ -114,7 +114,6 @@ impl App {
                 } else if self.selected_restaurant_index.is_none() {
                     self.selected_restaurant_index = Some(0);
                 } else {
-                    // clamp index
                     let max_idx = self.restaurants.len() - 1;
                     if let Some(ref mut idx) = self.selected_restaurant_index {
                         if *idx > max_idx {
@@ -189,12 +188,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
 
                     match app.screen {
-                        Screen::Login => handle_login_keys(app, key.code).await,
-                        Screen::Signup => handle_signup_keys(app, key.code).await,
-                        Screen::ResetPassword => handle_reset_keys(app, key.code).await,
-                        Screen::Dashboard => handle_dashboard_keys(app, key.code).await,
+                        Screen::Login => handle_login_keys(app, key).await,
+                        Screen::Signup => handle_signup_keys(app, key).await,
+                        Screen::ResetPassword => handle_reset_keys(app, key).await,
+                        Screen::Dashboard => handle_dashboard_keys(app, key).await,
                         Screen::AddRestaurant | Screen::EditRestaurant => {
-                            handle_form_keys(app, key.code).await
+                            handle_form_keys(app, key).await
                         }
                     }
                 }
@@ -203,27 +202,32 @@ async fn run_app<B: ratatui::backend::Backend>(
     }
 }
 
-async fn handle_login_keys(app: &mut App, code: KeyCode) {
-    match code {
+async fn handle_login_keys(app: &mut App, key: event::KeyEvent) {
+    // Ctrl+S to go to signup
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+        app.screen = Screen::Signup;
+        app.focus = Focus::SignupUsername;
+        app.input_username.clear();
+        app.input_password.clear();
+        app.clear_status();
+        return;
+    }
+    // Ctrl+R to go to reset password
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
+        app.screen = Screen::ResetPassword;
+        app.focus = Focus::ResetUsername;
+        app.input_username.clear();
+        app.input_password.clear();
+        app.clear_status();
+        return;
+    }
+
+    match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
                 Focus::LoginUsername => Focus::LoginPassword,
                 _ => Focus::LoginUsername,
             };
-        }
-        KeyCode::Char('s') if !matches!(app.focus, Focus::LoginUsername | Focus::LoginPassword) => {
-            app.screen = Screen::Signup;
-            app.focus = Focus::SignupUsername;
-            app.input_username.clear();
-            app.input_password.clear();
-            app.clear_status();
-        }
-        KeyCode::Char('r') if !matches!(app.focus, Focus::LoginUsername | Focus::LoginPassword) => {
-            app.screen = Screen::ResetPassword;
-            app.focus = Focus::ResetUsername;
-            app.input_username.clear();
-            app.input_password.clear();
-            app.clear_status();
         }
         KeyCode::Char(c) => {
             app.clear_status();
@@ -261,8 +265,8 @@ async fn handle_login_keys(app: &mut App, code: KeyCode) {
     }
 }
 
-async fn handle_signup_keys(app: &mut App, code: KeyCode) {
-    match code {
+async fn handle_signup_keys(app: &mut App, key: event::KeyEvent) {
+    match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
                 Focus::SignupUsername => Focus::SignupPassword,
@@ -276,7 +280,7 @@ async fn handle_signup_keys(app: &mut App, code: KeyCode) {
                 UserRole::Admin => UserRole::Customer,
             };
         }
-        KeyCode::Char('l') if !matches!(app.focus, Focus::SignupUsername | Focus::SignupPassword) => {
+        KeyCode::Esc => {
             app.screen = Screen::Login;
             app.focus = Focus::LoginUsername;
             app.input_username.clear();
@@ -319,15 +323,15 @@ async fn handle_signup_keys(app: &mut App, code: KeyCode) {
     }
 }
 
-async fn handle_reset_keys(app: &mut App, code: KeyCode) {
-    match code {
+async fn handle_reset_keys(app: &mut App, key: event::KeyEvent) {
+    match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
                 Focus::ResetUsername => Focus::ResetPassword,
                 _ => Focus::ResetUsername,
             };
         }
-        KeyCode::Char('l') if !matches!(app.focus, Focus::ResetUsername | Focus::ResetPassword) => {
+        KeyCode::Esc => {
             app.screen = Screen::Login;
             app.focus = Focus::LoginUsername;
             app.input_username.clear();
@@ -370,10 +374,9 @@ async fn handle_reset_keys(app: &mut App, code: KeyCode) {
     }
 }
 
-async fn handle_dashboard_keys(app: &mut App, code: KeyCode) {
-    // If focused on search input, capture general keys for filter query
+async fn handle_dashboard_keys(app: &mut App, key: event::KeyEvent) {
     if app.focus == Focus::SearchInput {
-        match code {
+        match key.code {
             KeyCode::Char(c) => {
                 app.search_query.push(c);
                 app.fetch_restaurants().await;
@@ -396,7 +399,7 @@ async fn handle_dashboard_keys(app: &mut App, code: KeyCode) {
         }
     }
 
-    match code {
+    match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
                 Focus::SearchInput => Focus::RestaurantList,
@@ -503,8 +506,8 @@ async fn handle_dashboard_keys(app: &mut App, code: KeyCode) {
     }
 }
 
-async fn handle_form_keys(app: &mut App, code: KeyCode) {
-    match code {
+async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
+    match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
                 Focus::FormName => Focus::FormType,
@@ -526,7 +529,6 @@ async fn handle_form_keys(app: &mut App, code: KeyCode) {
             } else if app.focus == Focus::FormOpenStatus {
                 app.form_open_status = !app.form_open_status;
             } else {
-                // Otherwise normal typing space
                 match app.focus {
                     Focus::FormName => app.form_name.push(' '),
                     Focus::FormLocation => app.form_location.push(' '),
@@ -561,7 +563,6 @@ async fn handle_form_keys(app: &mut App, code: KeyCode) {
             app.clear_status();
         }
         KeyCode::Enter => {
-            // Validate time strings before sending
             if app.form_open_time.len() != 8 || app.form_close_time.len() != 8 {
                 app.set_status("Validation error: Time format must be HH:MM:SS");
                 return;
@@ -628,5 +629,79 @@ async fn handle_form_keys(app: &mut App, code: KeyCode) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_app_initialization() {
+        let app = App::new("http://localhost:8000");
+        assert_eq!(app.screen, Screen::Login);
+        assert_eq!(app.focus, Focus::LoginUsername);
+        assert!(app.input_username.is_empty());
+        assert!(app.input_password.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_login_input_buffering() {
+        let mut app = App::new("http://localhost:8000");
+        
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).await;
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE)).await;
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)).await;
+        assert_eq!(app.input_username, "abc");
+
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)).await;
+        assert_eq!(app.input_username, "ab");
+
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
+        assert_eq!(app.focus, Focus::LoginPassword);
+
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)).await;
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).await;
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)).await;
+        assert_eq!(app.input_password, "pas");
+    }
+
+    #[tokio::test]
+    async fn test_screen_transitions() {
+        let mut app = App::new("http://localhost:8000");
+        
+        // Press 'Ctrl+S' to go to Signup
+        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)).await;
+        assert_eq!(app.screen, Screen::Signup);
+        assert_eq!(app.focus, Focus::SignupUsername);
+
+        // Cycle focus in signup
+        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
+        assert_eq!(app.focus, Focus::SignupPassword);
+        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
+        assert_eq!(app.focus, Focus::SignupRole);
+
+        // Toggle role with Space
+        assert_eq!(app.input_role, UserRole::Customer);
+        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_eq!(app.input_role, UserRole::Admin);
+        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
+        assert_eq!(app.input_role, UserRole::Customer);
+
+        // Back to login with Esc
+        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
+        assert_eq!(app.screen, Screen::Login);
+    }
+
+    #[tokio::test]
+    async fn test_form_time_validation() {
+        let mut app = App::new("http://localhost:8000");
+        app.screen = Screen::AddRestaurant;
+        app.api_client.set_token("dummy".to_string(), "admin".to_string(), UserRole::Admin);
+        
+        app.form_open_time = "08:00".to_string();
+        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
+        assert_eq!(app.screen, Screen::AddRestaurant);
+        assert!(app.status_message.as_ref().unwrap().contains("Validation error"));
     }
 }

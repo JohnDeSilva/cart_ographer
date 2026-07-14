@@ -70,9 +70,9 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let shortcuts = match app.screen {
-        Screen::Login => "[Tab] Switch Field  [Enter] Login  [S] Go to Signup  [R] Reset Password  [Esc] Exit",
-        Screen::Signup => "[Tab] Switch Field  [Space] Cycle Role  [Enter] Register  [L] Go to Login  [Esc] Exit",
-        Screen::ResetPassword => "[Tab] Switch Field  [Enter] Reset Password  [L] Go to Login  [Esc] Exit",
+        Screen::Login => "[Tab] Switch Field  [Enter] Login  [Ctrl+S] Signup  [Ctrl+R] Reset Password  [Esc] Exit",
+        Screen::Signup => "[Tab] Switch Field  [Space] Cycle Role  [Enter] Register  [Esc] Back to Login",
+        Screen::ResetPassword => "[Tab] Switch Field  [Enter] Reset Password  [Esc] Back to Login",
         Screen::Dashboard => {
             if app.api_client.role == Some(UserRole::Admin) {
                 "[Tab] Switch Focus  [↑/↓] Navigate  [S] Search  [A] Add  [E] Edit  [T] Toggle Open  [D] Delete  [Ctrl+L] Logout"
