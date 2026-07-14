@@ -78,6 +78,7 @@ make lint
 A native keyboard-driven terminal dashboard built with `ratatui` and `crossterm`.
 
 ### Running the TUI Client
+*(Note: Running this target will automatically verify if the FastAPI backend is active and spin it up in the background if needed)*
 ```bash
 # Build and run the Rust TUI client locally
 make run-tui
@@ -111,6 +112,7 @@ cargo test --manifest-path tui_client/Cargo.toml
 A responsive SPA built on React, styled with glassmorphic CSS rules.
 
 ### Running the Web Dev Server
+*(Note: Running this target will automatically verify if the FastAPI backend is active and spin it up in the background if needed)*
 ```bash
 # Install package dependencies
 make setup-web
