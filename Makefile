@@ -39,57 +39,51 @@ format:
 typecheck:
 	uv run mypy app
 
-# Run the Rust TUI client (auto-managing backend lifetime)
+# Run the Rust TUI client (starts backend, kills it on exit)
 run-tui:
 	@mkdir -p $(RUN_DEV_DIR)
-	@if ! curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
-		echo "Starting FastAPI backend in the background..."; \
-		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > $(RUN_DEV_DIR)/backend.log 2>&1 & \
-		BACKEND_PID=$$!; \
-		echo "Waiting for backend to start (PID: $$BACKEND_PID)..."; \
-		trap 'echo "Stopping background backend..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
-		for i in {1..10}; do \
-			if curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
-				echo "Backend is up!"; \
-				break; \
-			fi; \
-			sleep 1; \
-		done; \
-		cargo run --manifest-path tui_client/Cargo.toml; \
-	else \
-		echo "FastAPI backend is already running on port 8000."; \
-		cargo run --manifest-path tui_client/Cargo.toml; \
-	fi
+	@echo "Stopping any existing backend on port 8000..."
+	@lsof -ti:8000 2>/dev/null | xargs -r kill 2>/dev/null; sleep 0.5
+	@echo "Starting FastAPI backend in the background..."
+	@uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > $(RUN_DEV_DIR)/backend.log 2>&1 & \
+	BACKEND_PID=$$!; \
+	trap 'echo "Stopping background backend (PID: $$BACKEND_PID)..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
+	echo "Backend PID: $$BACKEND_PID"; \
+	for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
+			echo "Backend is up!"; \
+			break; \
+		fi; \
+		sleep 1; \
+	done; \
+	cargo run --manifest-path tui_client/Cargo.toml
 
 # Setup web client dependencies
 setup-web:
 	cd web_client && npm install
 
-# Run web client in development mode (auto-managing backend lifetime)
+# Run web client in development mode (starts backend, kills it on exit)
 run-web:
 	@mkdir -p $(RUN_DEV_DIR)
 	@if [ ! -d "web_client/node_modules" ]; then \
 		echo "web_client/node_modules not found. Running setup-web..."; \
 		$(MAKE) setup-web; \
 	fi
-	@if ! curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
-		echo "Starting FastAPI backend in the background..."; \
-		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > $(RUN_DEV_DIR)/backend.log 2>&1 & \
-		BACKEND_PID=$$!; \
-		echo "Waiting for backend to start (PID: $$BACKEND_PID)..."; \
-		trap 'echo "Stopping background backend..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
-		for i in {1..10}; do \
-			if curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
-				echo "Backend is up!"; \
-				break; \
-			fi; \
-			sleep 1; \
-		done; \
-		cd web_client && npm run dev; \
-	else \
-		echo "FastAPI backend is already running on port 8000."; \
-		cd web_client && npm run dev; \
-	fi
+	@echo "Stopping any existing backend on port 8000..."
+	@lsof -ti:8000 2>/dev/null | xargs -r kill 2>/dev/null; sleep 0.5
+	@echo "Starting FastAPI backend in the background..."
+	@uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > $(RUN_DEV_DIR)/backend.log 2>&1 & \
+	BACKEND_PID=$$!; \
+	trap 'echo "Stopping background backend (PID: $$BACKEND_PID)..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
+	echo "Backend PID: $$BACKEND_PID"; \
+	for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
+			echo "Backend is up!"; \
+			break; \
+		fi; \
+		sleep 1; \
+	done; \
+	cd web_client && npm run dev
 
 # Build the web client static assets
 build-web:
