@@ -82,3 +82,7 @@ dmypy.json
 # other
 *.swp
 *.swo
+
+# Rust / Cargo
+**/target/
+
