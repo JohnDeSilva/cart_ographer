@@ -1,4 +1,4 @@
-.PHONY: setup run test lint format typecheck clean coverage run-tui setup-web run-web build-web test-web start-backend-bg
+.PHONY: setup run test lint format typecheck clean coverage run-tui setup-web run-web build-web test-web
 
 # Default target
 all: setup lint typecheck test
@@ -31,12 +31,14 @@ format:
 typecheck:
 	uv run mypy app
 
-# Start backend in the background if not already running on port 8000
-start-backend-bg:
+# Run the Rust TUI client (auto-managing backend lifetime)
+run-tui:
 	@if ! curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
 		echo "Starting FastAPI backend in the background..."; \
 		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 & \
-		echo "Waiting for backend to start..."; \
+		BACKEND_PID=$$!; \
+		echo "Waiting for backend to start (PID: $$BACKEND_PID)..."; \
+		trap 'echo "Stopping background backend..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
 		for i in {1..10}; do \
 			if curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
 				echo "Backend is up!"; \
@@ -44,22 +46,36 @@ start-backend-bg:
 			fi; \
 			sleep 1; \
 		done; \
+		cargo run --manifest-path tui_client/Cargo.toml; \
 	else \
 		echo "FastAPI backend is already running on port 8000."; \
+		cargo run --manifest-path tui_client/Cargo.toml; \
 	fi
-
-# Run the Rust TUI client
-run-tui: start-backend-bg
-	cargo run --manifest-path tui_client/Cargo.toml
 
 # Setup web client dependencies
 setup-web:
 	cd web_client && npm install
 
-# Run web client in development mode
-run-web: start-backend-bg
-	cd web_client && npm run dev
-
+# Run web client in development mode (auto-managing backend lifetime)
+run-web:
+	@if ! curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
+		echo "Starting FastAPI backend in the background..."; \
+		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 & \
+		BACKEND_PID=$$!; \
+		echo "Waiting for backend to start (PID: $$BACKEND_PID)..."; \
+		trap 'echo "Stopping background backend..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
+		for i in {1..10}; do \
+			if curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
+				echo "Backend is up!"; \
+				break; \
+			fi; \
+			sleep 1; \
+		done; \
+		cd web_client && npm run dev; \
+	else \
+		echo "FastAPI backend is already running on port 8000."; \
+		cd web_client && npm run dev; \
+	fi
 
 # Build the web client static assets
 build-web:
@@ -73,5 +89,6 @@ test-web:
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov web_client/dist
 	find . -type d -name "__pycache__" -exec rm -r {} +
+
 
 
