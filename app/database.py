@@ -3,7 +3,8 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from typing import Generator
 from sqlalchemy.orm import Session
 
-DATABASE_URL = "sqlite:///./restaurants.db"
+RUN_DEV_DIR = "run_dev"
+DATABASE_URL = f"sqlite:///./{RUN_DEV_DIR}/restaurants.db"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

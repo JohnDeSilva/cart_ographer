@@ -313,7 +313,9 @@ def seed_demo_data(database_session: Session) -> None:
 
 
 if __name__ == "__main__":
+    import os
     logging.basicConfig(level=logging.INFO)
+    os.makedirs("run_dev", exist_ok=True)
     from app.database import engine, Base, SessionLocal
 
     Base.metadata.create_all(bind=engine)

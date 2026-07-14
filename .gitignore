@@ -70,6 +70,13 @@ dmypy.json
 # SQLite
 *.sqlite3
 
+# Runtime development directory
+run_dev/
+
+# Old root-level runtime files (moved to run_dev/)
+restaurants.db
+backend.log
+
 # macOS
 .DS_Store
 

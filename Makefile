@@ -1,3 +1,5 @@
+RUN_DEV_DIR = run_dev
+
 .PHONY: setup run test lint format typecheck clean coverage run-tui setup-web run-web build-web test-web seed
 
 # Default target
@@ -9,10 +11,12 @@ setup:
 
 # Seed demo data into the database
 seed:
+	mkdir -p $(RUN_DEV_DIR)
 	uv run python -m app.seed_data
 
 # Run the FastAPI server in reload/development mode
 run:
+	mkdir -p $(RUN_DEV_DIR)
 	uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 # Run all tests using pytest
@@ -37,9 +41,10 @@ typecheck:
 
 # Run the Rust TUI client (auto-managing backend lifetime)
 run-tui:
+	@mkdir -p $(RUN_DEV_DIR)
 	@if ! curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
 		echo "Starting FastAPI backend in the background..."; \
-		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 & \
+		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > $(RUN_DEV_DIR)/backend.log 2>&1 & \
 		BACKEND_PID=$$!; \
 		echo "Waiting for backend to start (PID: $$BACKEND_PID)..."; \
 		trap 'echo "Stopping background backend..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
@@ -62,13 +67,14 @@ setup-web:
 
 # Run web client in development mode (auto-managing backend lifetime)
 run-web:
+	@mkdir -p $(RUN_DEV_DIR)
 	@if [ ! -d "web_client/node_modules" ]; then \
 		echo "web_client/node_modules not found. Running setup-web..."; \
 		$(MAKE) setup-web; \
 	fi
 	@if ! curl -s --connect-timeout 1 http://127.0.0.1:8000/ > /dev/null; then \
 		echo "Starting FastAPI backend in the background..."; \
-		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 & \
+		uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > $(RUN_DEV_DIR)/backend.log 2>&1 & \
 		BACKEND_PID=$$!; \
 		echo "Waiting for backend to start (PID: $$BACKEND_PID)..."; \
 		trap 'echo "Stopping background backend..."; kill $$BACKEND_PID 2>/dev/null || true' EXIT INT TERM; \
@@ -103,7 +109,7 @@ test-web:
 
 # Clean up build/cache artifacts
 clean:
-	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov web_client/dist
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov web_client/dist $(RUN_DEV_DIR)
 	find . -type d -name "__pycache__" -exec rm -r {} +
 
 
