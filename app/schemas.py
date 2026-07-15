@@ -1,5 +1,5 @@
 from datetime import time
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, computed_field
 from app.models import RestaurantType, UserRole, LocationCategory
 
@@ -79,6 +79,33 @@ class LocationResponse(BaseModel):
         return self.description or ""
 
 
+class MenuItemCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    price: Optional[float] = None
+    sort_order: int = 0
+
+
+class MenuItemUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
+    is_sold_out: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class MenuItemResponse(BaseModel):
+    id: int
+    restaurant_id: int
+    name: str
+    description: Optional[str] = None
+    price: Optional[float] = None
+    is_sold_out: bool
+    sort_order: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class RestaurantBase(BaseModel):
     name: str
     restaurant_type: RestaurantType
@@ -87,7 +114,6 @@ class RestaurantBase(BaseModel):
     close_time: time
     open_status: bool = True
     description: Optional[str] = None
-    menu_items: Optional[str] = None
 
 
 class RestaurantCreate(RestaurantBase):
@@ -106,7 +132,6 @@ class RestaurantUpdate(BaseModel):
     close_time: Optional[time] = None
     open_status: Optional[bool] = None
     description: Optional[str] = None
-    menu_items: Optional[str] = None
     location: Optional[LocationUpdate] = None
 
 
@@ -118,17 +143,12 @@ class RestaurantApproval(BaseModel):
     is_approved: bool
 
 
-class LocationApproval(BaseModel):
-    approve: bool
-
-
 class RestaurantResponse(RestaurantBase):
     id: int
     is_approved: bool
     owner_id: Optional[int] = None
     location: Optional[LocationResponse] = None
-    pending_location: Optional[LocationResponse] = None
-    location_change_pending: bool = False
+    menu_items: List[MenuItemResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 

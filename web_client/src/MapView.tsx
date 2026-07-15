@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import { Restaurant } from './api';
+import RestaurantCard from './components/RestaurantCard';
 
-const SIMULATED_USER_LOCATION: [number, number] = [45.5152, -122.6784];
+const DEFAULT_LOCATION: [number, number] = [36.1699, -115.1398];
 
 function createTypeIcon(type: string): L.DivIcon {
   const colors: Record<string, string> = {
@@ -46,15 +47,45 @@ const userIcon = L.divIcon({
   iconAnchor: [12, 12],
 });
 
-export default function MapView({ restaurants }: { restaurants: Restaurant[] }) {
+export default function MapView({ restaurants, onSelectRestaurant }: { restaurants: Restaurant[]; onSelectRestaurant?: (id: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
+  const userMarkerRef = useRef<L.Marker | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [visibleIds, setVisibleIds] = useState<Set<number>>(new Set());
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+
+  const withLocation = restaurants.filter(
+    r => r.is_approved && r.location?.lat != null && r.location?.lng != null
+  );
+
+  const updateVisible = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const bounds = map.getBounds();
+    const ids = new Set(
+      withLocation.filter(r => bounds.contains(L.latLng(r.location.lat!, r.location.lng!)))
+        .map(r => r.id)
+    );
+    setVisibleIds(ids);
+  }, [withLocation]);
+
+  const updateVisibleRef = useRef(updateVisible);
+  updateVisibleRef.current = updateVisible;
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => setUserLocation([pos.coords.latitude, pos.coords.longitude]),
+      () => {}
+    );
+  }, []);
 
   useEffect(() => {
     if (containerRef.current && !mapRef.current) {
       const map = L.map(containerRef.current, {
-        center: SIMULATED_USER_LOCATION,
+        center: DEFAULT_LOCATION,
         zoom: 14,
         zoomControl: true,
       });
@@ -62,6 +93,8 @@ export default function MapView({ restaurants }: { restaurants: Restaurant[] }) 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map);
+
+      map.on('moveend', () => updateVisibleRef.current());
 
       mapRef.current = map;
       setMapReady(true);
@@ -82,17 +115,21 @@ export default function MapView({ restaurants }: { restaurants: Restaurant[] }) 
     if (!map) return;
 
     try {
-      const markers = restaurants.filter(
-        r => r.is_approved && r.location && r.location.lat != null && r.location.lng != null
-      );
+      markersRef.current.forEach(m => map.removeLayer(m));
+      if (userMarkerRef.current) {
+        map.removeLayer(userMarkerRef.current);
+        userMarkerRef.current = null;
+      }
 
-      const userMarker = L.marker(SIMULATED_USER_LOCATION, { icon: userIcon }).addTo(map);
+      const loc = userLocation ?? DEFAULT_LOCATION;
+      const userMarker = L.marker(loc, { icon: userIcon }).addTo(map);
       userMarker.bindPopup(`
         <strong>You are here</strong><br>
-        <span style="font-size:12px;color:#666">Simulated location (Portland, OR)</span>
+        <span style="font-size:12px;color:#666">${userLocation ? 'Your actual location' : 'Fallback location'}</span>
       `);
+      userMarkerRef.current = userMarker;
 
-      const restaurantMarkers = markers.map(r =>
+      markersRef.current = withLocation.map(r =>
         L.marker([r.location.lat!, r.location.lng!], { icon: createTypeIcon(r.restaurant_type) })
           .addTo(map)
           .bindPopup(`
@@ -103,50 +140,53 @@ export default function MapView({ restaurants }: { restaurants: Restaurant[] }) 
           `)
       );
 
-      const locations = markers.map(r => L.latLng(r.location.lat!, r.location.lng!));
-      locations.push(L.latLng(SIMULATED_USER_LOCATION[0], SIMULATED_USER_LOCATION[1]));
-
-      if (locations.length > 0) {
+      if (withLocation.length > 0) {
+        const locations = withLocation.map(r => L.latLng(r.location.lat!, r.location.lng!));
+        locations.push(L.latLng(loc[0], loc[1]));
         const bounds = L.latLngBounds(locations);
         map.fitBounds(bounds, { padding: [50, 50] });
       }
 
-      return () => {
-        map.eachLayer(layer => {
-          if (layer instanceof L.Marker) {
-            map.removeLayer(layer);
-          }
-        });
-      };
+      updateVisibleRef.current();
     } catch (err) {
       console.error('MapView render error:', err);
     }
-  }, [restaurants, mapReady]);
+  }, [restaurants, mapReady, userLocation]);
 
-  const withLocation = restaurants.filter(r => r.location?.lat != null && r.location?.lng != null);
+  const visibleList = withLocation.filter(r => visibleIds.has(r.id));
 
   return (
-    <>
-      {!mapReady && (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-          Initializing map...
+    <div style={{ display: 'flex', gap: '16px', height: 'calc(100vh - 80px)' }}>
+      <div className="sidebar-panel glass-panel" style={{ width: '320px', flexShrink: 0, overflow: 'auto', position: 'relative' }}>
+        <div style={{ padding: '12px', fontWeight: 600, borderBottom: '1px solid var(--panel-border)', position: 'sticky', top: 0, background: 'var(--panel-bg)', zIndex: 1 }}>
+          Restaurants on Map ({visibleList.length})
         </div>
-      )}
-      <div
-        ref={containerRef}
-        style={{
-          width: '100%',
-          minHeight: '500px',
-          height: 'calc(100vh - 180px)',
-          borderRadius: '12px',
-          border: '1px solid rgba(255,255,255,0.1)',
-        }}
-      />
-      {mapReady && withLocation.length === 0 && restaurants.length > 0 && (
-        <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
-          {restaurants.length} restaurant(s) loaded, but none have GPS coordinates to pin on the map.
-        </div>
-      )}
-    </>
+        {visibleList.map(r => (
+          <RestaurantCard key={r.id} restaurant={r} variant="map" onClick={onSelectRestaurant} />
+        ))}
+        {visibleList.length === 0 && mapReady && (
+          <div className="empty-state" style={{ padding: '20px' }}>
+            <span>No restaurants visible on this map area. Pan or zoom to find vendors.</span>
+          </div>
+        )}
+        {!mapReady && (
+          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            Loading map...
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+        <div
+          ref={containerRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '12px',
+            border: '1px solid rgba(255,255,255,0.1)',
+          }}
+        />
+      </div>
+    </div>
   );
 }

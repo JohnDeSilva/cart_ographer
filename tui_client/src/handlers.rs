@@ -1,322 +1,11 @@
-use std::{io, time::Duration};
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use crossterm::event::{self, KeyCode, KeyModifiers};
+use crate::app::{App, Screen, Focus};
+use crate::api::{
+    LocationCreatePayload, LocationUpdatePayload, MenuItem, MenuItemCreate,
+    MenuItemUpdate, Restaurant, RestaurantCreate, RestaurantUpdate, UserRole,
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
 
-mod api;
-mod ui;
-
-use api::{ApiClient, FavoriteResponse, LocationCreatePayload, LocationUpdatePayload, MenuItem, MenuItemCreate, MenuItemUpdate, Restaurant, RestaurantCreate, RestaurantUpdate, RestaurantType, UserRole};
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Screen {
-    Login,
-    Signup,
-    ResetPassword,
-    Dashboard,
-    AddRestaurant,
-    EditRestaurant,
-    MyRestaurants,
-    FavoritesView,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Focus {
-    LoginUsername,
-    LoginPassword,
-    SignupUsername,
-    SignupPassword,
-    SignupRole,
-    ResetUsername,
-    ResetPassword,
-    SearchInput,
-    RestaurantList,
-    DetailPane,
-    FormName,
-    FormType,
-    FormCuisineType,
-    FormLocation,
-    FormLocationDesc,
-    FormLocationLat,
-    FormLocationLng,
-    FormLocationAddress,
-    FormLocationCity,
-    FormLocationState,
-    FormLocationZip,
-    FormLocationRoad1,
-    FormLocationRoad2,
-    FormLocationVenue,
-    FormLocationStall,
-    FormLocationLot,
-    FormOpenTime,
-    FormCloseTime,
-    FormOpenStatus,
-    FormDescription,
-    FormMenuItemName,
-    FormMenuItemPrice,
-    FormMenuItemDescription,
-    FormMenuList,
-    MyRestaurantsList,
-    MyRestaurantsDetail,
-    FavoritesList,
-    FavoritesDetail,
-}
-
-pub struct App {
-    pub screen: Screen,
-    pub focus: Focus,
-    pub api_client: ApiClient,
-    pub restaurants: Vec<Restaurant>,
-    pub my_restaurants: Vec<Restaurant>,
-    pub favorites: Vec<FavoriteResponse>,
-    pub selected_restaurant_index: Option<usize>,
-    pub selected_my_restaurant_index: Option<usize>,
-    pub selected_favorite_index: Option<usize>,
-    pub status_message: Option<String>,
-    pub editing_restaurant_id: Option<i32>,
-
-    pub input_username: String,
-    pub input_password: String,
-    pub input_role: UserRole,
-
-    pub search_query: String,
-
-    pub form_name: String,
-    pub form_type: RestaurantType,
-    pub form_cuisine_type: String,
-    pub form_location: String,
-    pub form_location_desc: String,
-    pub form_location_lat: String,
-    pub form_location_lng: String,
-    pub form_location_address: String,
-    pub form_location_city: String,
-    pub form_location_state: String,
-    pub form_location_zip: String,
-    pub form_location_road1: String,
-    pub form_location_road2: String,
-    pub form_location_venue: String,
-    pub form_location_stall: String,
-    pub form_location_lot: String,
-    pub form_open_time: String,
-    pub form_close_time: String,
-    pub form_open_status: bool,
-    pub form_description: String,
-    pub form_menu_items: Vec<MenuItem>,
-    pub form_menu_item_name: String,
-    pub form_menu_item_price: String,
-    pub form_menu_item_description: String,
-    pub form_menu_item_selected: Option<usize>,
-    pub form_menu_items_removed: Vec<i64>,
-}
-
-impl App {
-    pub fn new(base_url: &str) -> Self {
-        Self {
-            screen: Screen::Login,
-            focus: Focus::LoginUsername,
-            api_client: ApiClient::new(base_url),
-            restaurants: Vec::new(),
-            my_restaurants: Vec::new(),
-            favorites: Vec::new(),
-            selected_restaurant_index: None,
-            selected_my_restaurant_index: None,
-            selected_favorite_index: None,
-            status_message: None,
-            editing_restaurant_id: None,
-            input_username: String::new(),
-            input_password: String::new(),
-            input_role: UserRole::Customer,
-            search_query: String::new(),
-            form_name: String::new(),
-            form_type: RestaurantType::FoodStall,
-            form_cuisine_type: String::new(),
-            form_location: String::new(),
-            form_location_desc: String::new(),
-            form_location_lat: String::new(),
-            form_location_lng: String::new(),
-            form_location_address: String::new(),
-            form_location_city: String::new(),
-            form_location_state: String::new(),
-            form_location_zip: String::new(),
-            form_location_road1: String::new(),
-            form_location_road2: String::new(),
-            form_location_venue: String::new(),
-            form_location_stall: String::new(),
-            form_location_lot: String::new(),
-            form_open_time: "08:00:00".to_string(),
-            form_close_time: "22:00:00".to_string(),
-            form_open_status: true,
-            form_description: String::new(),
-            form_menu_items: Vec::new(),
-            form_menu_item_name: String::new(),
-            form_menu_item_price: String::new(),
-            form_menu_item_description: String::new(),
-            form_menu_item_selected: None,
-            form_menu_items_removed: Vec::new(),
-        }
-    }
-
-    pub fn set_status(&mut self, msg: &str) {
-        self.status_message = Some(msg.to_string());
-    }
-
-    pub fn clear_status(&mut self) {
-        self.status_message = None;
-    }
-
-    pub async fn fetch_restaurants(&mut self) {
-        self.set_status("Loading restaurants...");
-        match self.api_client.get_restaurants(Some(&self.search_query)).await {
-            Ok(list) => {
-                self.restaurants = list;
-                if self.restaurants.is_empty() {
-                    self.selected_restaurant_index = None;
-                } else if self.selected_restaurant_index.is_none() {
-                    self.selected_restaurant_index = Some(0);
-                } else {
-                    let max_idx = self.restaurants.len() - 1;
-                    if let Some(ref mut idx) = self.selected_restaurant_index {
-                        if *idx > max_idx {
-                            *idx = max_idx;
-                        }
-                    }
-                }
-                self.clear_status();
-            }
-            Err(e) => {
-                self.set_status(&format!("Fetch error: {}", e));
-            }
-        }
-    }
-
-    pub async fn fetch_my_restaurants(&mut self) {
-        self.set_status("Loading your restaurants...");
-        match self.api_client.get_my_restaurants().await {
-            Ok(list) => {
-                self.my_restaurants = list;
-                if self.my_restaurants.is_empty() {
-                    self.selected_my_restaurant_index = None;
-                } else if self.selected_my_restaurant_index.is_none() {
-                    self.selected_my_restaurant_index = Some(0);
-                } else {
-                    let max_idx = self.my_restaurants.len() - 1;
-                    if let Some(ref mut idx) = self.selected_my_restaurant_index {
-                        if *idx > max_idx {
-                            *idx = max_idx;
-                        }
-                    }
-                }
-                self.clear_status();
-            }
-            Err(e) => {
-                self.set_status(&format!("Fetch error: {}", e));
-            }
-        }
-    }
-
-    pub async fn fetch_favorites(&mut self) {
-        self.set_status("Loading favorites...");
-        match self.api_client.get_favorites().await {
-            Ok(list) => {
-                self.favorites = list;
-                if self.favorites.is_empty() {
-                    self.selected_favorite_index = None;
-                } else if self.selected_favorite_index.is_none() {
-                    self.selected_favorite_index = Some(0);
-                } else {
-                    let max_idx = self.favorites.len() - 1;
-                    if let Some(ref mut idx) = self.selected_favorite_index {
-                        if *idx > max_idx {
-                            *idx = max_idx;
-                        }
-                    }
-                }
-                self.clear_status();
-            }
-            Err(e) => {
-                self.set_status(&format!("Fetch error: {}", e));
-            }
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let base_url = "http://127.0.0.1:8000";
-    let mut app = App::new(base_url);
-
-    let run_res = run_app(&mut terminal, &mut app).await;
-
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = run_res {
-        println!("App error: {:?}", err);
-    }
-
-    Ok(())
-}
-
-async fn run_app<B: ratatui::backend::Backend>(
-    terminal: &mut Terminal<B>,
-    app: &mut App,
-) -> io::Result<()> {
-    loop {
-        terminal.draw(|f| ui::draw(f, app))?;
-
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == event::KeyEventKind::Press {
-                    if app.screen == Screen::Login && key.code == KeyCode::Esc {
-                        return Ok(());
-                    }
-
-                    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('l') {
-                        app.api_client.logout();
-                        app.screen = Screen::Login;
-                        app.focus = Focus::LoginUsername;
-                        app.input_username.clear();
-                        app.input_password.clear();
-                        app.my_restaurants.clear();
-                        app.favorites.clear();
-                        app.selected_my_restaurant_index = None;
-                        app.selected_favorite_index = None;
-                        app.set_status("Logged out successfully");
-                        continue;
-                    }
-
-                    match app.screen {
-                        Screen::Login => handle_login_keys(app, key).await,
-                        Screen::Signup => handle_signup_keys(app, key).await,
-                        Screen::ResetPassword => handle_reset_keys(app, key).await,
-                        Screen::Dashboard => handle_dashboard_keys(app, key).await,
-                        Screen::AddRestaurant | Screen::EditRestaurant => {
-                            handle_form_keys(app, key).await
-                        }
-                        Screen::MyRestaurants => handle_my_restaurants_keys(app, key).await,
-                        Screen::FavoritesView => handle_favorites_keys(app, key).await,
-                    }
-                }
-            }
-        }
-    }
-}
-
-async fn handle_login_keys(app: &mut App, key: event::KeyEvent) {
+pub async fn handle_login_keys(app: &mut App, key: event::KeyEvent) {
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
         app.screen = Screen::Signup;
         app.focus = Focus::SignupUsername;
@@ -383,7 +72,7 @@ async fn handle_login_keys(app: &mut App, key: event::KeyEvent) {
     }
 }
 
-async fn handle_signup_keys(app: &mut App, key: event::KeyEvent) {
+pub async fn handle_signup_keys(app: &mut App, key: event::KeyEvent) {
     match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
@@ -442,7 +131,7 @@ async fn handle_signup_keys(app: &mut App, key: event::KeyEvent) {
     }
 }
 
-async fn handle_reset_keys(app: &mut App, key: event::KeyEvent) {
+pub async fn handle_reset_keys(app: &mut App, key: event::KeyEvent) {
     match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
@@ -493,7 +182,7 @@ async fn handle_reset_keys(app: &mut App, key: event::KeyEvent) {
     }
 }
 
-async fn handle_dashboard_keys(app: &mut App, key: event::KeyEvent) {
+pub async fn handle_dashboard_keys(app: &mut App, key: event::KeyEvent) {
     if app.focus == Focus::SearchInput {
         match key.code {
             KeyCode::Char(c) => {
@@ -664,7 +353,7 @@ async fn handle_dashboard_keys(app: &mut App, key: event::KeyEvent) {
     }
 }
 
-async fn handle_my_restaurants_keys(app: &mut App, key: event::KeyEvent) {
+pub async fn handle_my_restaurants_keys(app: &mut App, key: event::KeyEvent) {
     if app.focus == Focus::MyRestaurantsList {
         match key.code {
             KeyCode::Up => {
@@ -769,7 +458,7 @@ async fn handle_my_restaurants_keys(app: &mut App, key: event::KeyEvent) {
     }
 }
 
-async fn handle_favorites_keys(app: &mut App, key: event::KeyEvent) {
+pub async fn handle_favorites_keys(app: &mut App, key: event::KeyEvent) {
     if app.focus == Focus::FavoritesList {
         match key.code {
             KeyCode::Up => {
@@ -837,7 +526,7 @@ async fn handle_favorites_keys(app: &mut App, key: event::KeyEvent) {
     }
 }
 
-fn clear_form(app: &mut App) {
+pub fn clear_form(app: &mut App) {
     app.form_name.clear();
     app.form_type = RestaurantType::FoodStall;
     app.form_cuisine_type.clear();
@@ -866,7 +555,7 @@ fn clear_form(app: &mut App) {
     app.form_menu_items_removed = Vec::new();
 }
 
-fn populate_form_from_restaurant(app: &mut App, r: &Restaurant) {
+pub fn populate_form_from_restaurant(app: &mut App, r: &Restaurant) {
     app.form_name = r.name.clone();
     app.form_type = r.restaurant_type.clone();
     app.form_cuisine_type = r.cuisine_type.clone();
@@ -895,7 +584,7 @@ fn populate_form_from_restaurant(app: &mut App, r: &Restaurant) {
     app.form_menu_items_removed = Vec::new();
 }
 
-async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
+pub async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
     match key.code {
         KeyCode::Tab => {
             app.focus = match app.focus {
@@ -1308,209 +997,5 @@ async fn handle_form_keys(app: &mut App, key: event::KeyEvent) {
             }
         }
         _ => {}
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use api::Location;
-
-    #[tokio::test]
-    async fn test_app_initialization() {
-        let app = App::new("http://localhost:8000");
-        assert_eq!(app.screen, Screen::Login);
-        assert_eq!(app.focus, Focus::LoginUsername);
-        assert!(app.input_username.is_empty());
-        assert!(app.input_password.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_login_input_buffering() {
-        let mut app = App::new("http://localhost:8000");
-
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).await;
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE)).await;
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)).await;
-        assert_eq!(app.input_username, "abc");
-
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)).await;
-        assert_eq!(app.input_username, "ab");
-
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
-        assert_eq!(app.focus, Focus::LoginPassword);
-
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)).await;
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).await;
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)).await;
-        assert_eq!(app.input_password, "pas");
-    }
-
-    #[tokio::test]
-    async fn test_screen_transitions() {
-        let mut app = App::new("http://localhost:8000");
-
-        handle_login_keys(&mut app, event::KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)).await;
-        assert_eq!(app.screen, Screen::Signup);
-        assert_eq!(app.focus, Focus::SignupUsername);
-
-        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
-        assert_eq!(app.focus, Focus::SignupPassword);
-        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
-        assert_eq!(app.focus, Focus::SignupRole);
-
-        assert_eq!(app.input_role, UserRole::Customer);
-        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-        assert_eq!(app.input_role, UserRole::Admin);
-        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-        assert_eq!(app.input_role, UserRole::Consumer);
-        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-        assert_eq!(app.input_role, UserRole::Customer);
-
-        handle_signup_keys(&mut app, event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
-        assert_eq!(app.screen, Screen::Login);
-    }
-
-    #[tokio::test]
-    async fn test_form_time_validation() {
-        let mut app = App::new("http://localhost:8000");
-        app.screen = Screen::AddRestaurant;
-        app.api_client.set_token("dummy".to_string(), "admin".to_string(), UserRole::Admin);
-
-        app.form_open_time = "08:00".to_string();
-        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).await;
-        assert_eq!(app.screen, Screen::AddRestaurant);
-        assert!(app.status_message.as_ref().unwrap().contains("Validation error"));
-    }
-
-    #[tokio::test]
-    async fn test_form_type_cycling_includes_food_cart() {
-        let mut app = App::new("http://localhost:8000");
-        app.screen = Screen::AddRestaurant;
-        app.focus = Focus::FormType;
-
-        assert_eq!(app.form_type, RestaurantType::FoodStall);
-        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-        assert_eq!(app.form_type, RestaurantType::FoodTruck);
-        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-        assert_eq!(app.form_type, RestaurantType::FoodCart);
-        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-        assert_eq!(app.form_type, RestaurantType::BrickAndMortar);
-        handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)).await;
-        assert_eq!(app.form_type, RestaurantType::FoodStall);
-    }
-
-    #[tokio::test]
-    async fn test_form_tab_sequence_includes_new_fields() {
-        let mut app = App::new("http://localhost:8000");
-        app.screen = Screen::AddRestaurant;
-        app.focus = Focus::FormName;
-
-        let tab_sequence = [
-            Focus::FormType,
-            Focus::FormCuisineType,
-            Focus::FormLocation,
-            Focus::FormLocationDesc,
-            Focus::FormLocationLat,
-            Focus::FormLocationLng,
-            Focus::FormLocationAddress,
-            Focus::FormLocationCity,
-            Focus::FormLocationState,
-            Focus::FormLocationZip,
-            Focus::FormLocationRoad1,
-            Focus::FormLocationRoad2,
-            Focus::FormLocationVenue,
-            Focus::FormLocationStall,
-            Focus::FormLocationLot,
-            Focus::FormOpenTime,
-            Focus::FormCloseTime,
-            Focus::FormOpenStatus,
-            Focus::FormDescription,
-            Focus::FormMenuItemName,
-            Focus::FormMenuItemPrice,
-            Focus::FormMenuItemDescription,
-            Focus::FormMenuList,
-            Focus::FormName,
-        ];
-
-        for expected_focus in &tab_sequence {
-            handle_form_keys(&mut app, event::KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await;
-            assert_eq!(app.focus, *expected_focus);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_my_restaurants_navigation() {
-        let mut app = App::new("http://localhost:8000");
-        app.screen = Screen::MyRestaurants;
-        app.focus = Focus::MyRestaurantsList;
-
-        let loc1 = Location {
-            id: 1,
-            location_type: "other".to_string(),
-            formatted: "Loc1".to_string(),
-            description: Some("Loc1".to_string()),
-            lat: None, lng: None, address: None, city: None, state: None,
-            zip_code: None, road_1: None, road_2: None,
-            venue_name: None, stall_number: None, lot_name: None,
-        };
-        let loc2 = Location {
-            id: 2,
-            location_type: "other".to_string(),
-            formatted: "Loc2".to_string(),
-            description: Some("Loc2".to_string()),
-            lat: None, lng: None, address: None, city: None, state: None,
-            zip_code: None, road_1: None, road_2: None,
-            venue_name: None, stall_number: None, lot_name: None,
-        };
-        let r1 = Restaurant {
-            id: 1,
-            name: "Test1".to_string(),
-            restaurant_type: RestaurantType::FoodStall,
-            cuisine_type: String::new(),
-            location: loc1,
-            open_time: "08:00:00".to_string(),
-            close_time: "22:00:00".to_string(),
-            open_status: true,
-            description: None,
-            menu_items: vec![],
-            is_approved: false,
-            owner_id: Some(1),
-        };
-        let r2 = Restaurant {
-            id: 2,
-            name: "Test2".to_string(),
-            restaurant_type: RestaurantType::FoodTruck,
-            cuisine_type: String::new(),
-            location: loc2,
-            open_time: "09:00:00".to_string(),
-            close_time: "21:00:00".to_string(),
-            open_status: false,
-            description: None,
-            menu_items: vec![],
-            is_approved: false,
-            owner_id: Some(1),
-        };
-        app.my_restaurants = vec![r1, r2];
-
-        assert_eq!(app.selected_my_restaurant_index, None);
-        handle_my_restaurants_keys(&mut app, event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
-        assert_eq!(app.selected_my_restaurant_index, Some(0));
-
-        handle_my_restaurants_keys(&mut app, event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).await;
-        assert_eq!(app.selected_my_restaurant_index, Some(1));
-
-        handle_my_restaurants_keys(&mut app, event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).await;
-        assert_eq!(app.selected_my_restaurant_index, Some(0));
-    }
-
-    #[tokio::test]
-    async fn test_favorites_screen_exit() {
-        let mut app = App::new("http://localhost:8000");
-        app.screen = Screen::FavoritesView;
-        app.focus = Focus::FavoritesList;
-
-        handle_favorites_keys(&mut app, event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await;
-        assert_eq!(app.screen, Screen::Dashboard);
     }
 }

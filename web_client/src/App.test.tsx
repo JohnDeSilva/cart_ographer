@@ -3,6 +3,10 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import App from './App';
 import { api, Restaurant } from './api';
 
+vi.mock('./MapView', () => ({
+  default: () => <div data-testid="map-view" />,
+}));
+
 vi.mock('./api', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -16,7 +20,6 @@ vi.mock('./api', async (importOriginal) => {
       submitRestaurant: vi.fn(),
       getMyRestaurants: vi.fn().mockResolvedValue([]),
       approveRestaurant: vi.fn(),
-      approveLocationChange: vi.fn(),
       addFavorite: vi.fn(),
       removeFavorite: vi.fn(),
       getFavorites: vi.fn().mockResolvedValue([]),
@@ -55,9 +58,8 @@ const mockRestaurant = (overrides = {}) => ({
   close_time: '22:00:00',
   open_status: true,
   description: 'A test restaurant',
-  menu_items: 'Pizza, Pasta',
+  menu_items: [],
   is_approved: true,
-  location_change_pending: false,
   ...overrides,
 } as Restaurant);
 
@@ -122,19 +124,25 @@ describe('Web UI - App Component', () => {
   test('Admin sees Approvals navigation tab', () => {
     setupAuth('Admin');
     render(<App />);
-    expect(screen.getByText(/approvals/i)).toBeInTheDocument();
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    expect(screen.getByText('Approvals', { exact: true })).toBeInTheDocument();
   });
 
   test('Customer sees My Submissions navigation tab', () => {
     setupAuth('Customer');
     render(<App />);
-    expect(screen.getByRole('button', { name: /my submissions/i })).toBeInTheDocument();
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    expect(screen.getByText('My Submissions', { exact: true })).toBeInTheDocument();
   });
 
   test('Consumer sees My Favorites navigation tab', () => {
     setupAuth('Consumer');
     render(<App />);
-    expect(screen.getByText(/my favorites/i)).toBeInTheDocument();
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    expect(screen.getByText('My Favorites', { exact: true })).toBeInTheDocument();
   });
 
   test('Admin does not see My Submissions tab', () => {
@@ -162,8 +170,9 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
-    const browseButton = screen.getByRole('button', { name: /browse/i });
-    fireEvent.click(browseButton);
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    fireEvent.click(screen.getByText('List', { exact: true }));
 
     await waitFor(() => {
       const sidebarItems = screen.getAllByText('Test Restaurant');
@@ -192,8 +201,9 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
-    const browseButton = screen.getByRole('button', { name: /browse/i });
-    fireEvent.click(browseButton);
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    fireEvent.click(screen.getByText('List', { exact: true }));
 
     await waitFor(() => {
       const sidebarItems = screen.getAllByText('Test Restaurant');
@@ -220,8 +230,9 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
-    const submissionsTab = screen.getByRole('button', { name: /my submissions/i });
-    fireEvent.click(submissionsTab);
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    fireEvent.click(screen.getByText('My Submissions', { exact: true }));
 
     await waitFor(() => {
       expect(screen.getByText(/submit new restaurant/i)).toBeInTheDocument();
@@ -236,8 +247,9 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
-    const approvalsTab = screen.getByText(/approvals/i);
-    fireEvent.click(approvalsTab);
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    fireEvent.click(screen.getByText('Approvals', { exact: true }));
 
     await waitFor(() => {
       expect(screen.getByText('Pending Place')).toBeInTheDocument();
@@ -253,39 +265,16 @@ describe('Web UI - App Component', () => {
 
     render(<App />);
 
-    const favTab = screen.getByText(/my favorites/i);
-    fireEvent.click(favTab);
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    fireEvent.click(menuButton);
+    fireEvent.click(screen.getByText('My Favorites', { exact: true }));
 
     await waitFor(() => {
       expect(screen.getByText('Test Restaurant')).toBeInTheDocument();
     });
   });
 
-  test('Restaurant detail shows pending location information', async () => {
-    setupAuth('Admin');
-    const restaurantWithPendingLocation = mockRestaurant({
-      location: mockLocation(),
-      pending_location: mockLocation({ formatted: '456 New St', address: '456 New St' }),
-      location_change_pending: true,
-    });
-    vi.mocked(api.getRestaurants).mockResolvedValue([restaurantWithPendingLocation]);
-
-    render(<App />);
-
-    await waitFor(() => {
-      const sidebarItems = screen.getAllByText('Test Restaurant');
-      expect(sidebarItems.length).toBeGreaterThan(0);
-    });
-
-    const sidebarItem = screen.getAllByText('Test Restaurant')[0];
-    fireEvent.click(sidebarItem);
-
-    await waitFor(() => {
-      expect(screen.getByText(/456 New St/)).toBeInTheDocument();
-    });
-  });
-
-  test('Add Restaurant form includes Cuisine Type and Menu Items fields', async () => {
+  test('Add Restaurant form includes Cuisine Type and Menu Items section', async () => {
     setupAuth('Admin');
     render(<App />);
 
@@ -294,7 +283,7 @@ describe('Web UI - App Component', () => {
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/e.g. Italian, Mexican/i)).toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/list menu items/i)).toBeInTheDocument();
+      expect(screen.getByText(/menu items/i)).toBeInTheDocument();
     });
   });
 });

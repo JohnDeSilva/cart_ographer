@@ -1,6 +1,6 @@
 import enum
 from datetime import time
-from typing import Optional
+from typing import List, Optional
 from sqlalchemy import (
     String,
     Time,
@@ -92,7 +92,6 @@ class Restaurant(Base):
     close_time: Mapped[time] = mapped_column(Time, nullable=False)
     open_status: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    menu_items: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     owner_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
@@ -100,21 +99,32 @@ class Restaurant(Base):
     location_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("locations.id"), nullable=True
     )
-    pending_location_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("locations.id"), nullable=True
-    )
-    location_change_pending: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
-
     owner: Mapped[Optional["User"]] = relationship(
         "User", back_populates="owned_restaurants", foreign_keys=[owner_id]
     )
     location: Mapped[Optional["Location"]] = relationship(
         "Location", foreign_keys=[location_id], post_update=True
     )
-    pending_location: Mapped[Optional["Location"]] = relationship(
-        "Location", foreign_keys=[pending_location_id], post_update=True
+    menu_items: Mapped[List["MenuItem"]] = relationship(
+        "MenuItem", back_populates="restaurant", cascade="all, delete-orphan"
+    )
+
+
+class MenuItem(Base):
+    __tablename__ = "menu_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    restaurant_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("restaurants.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_sold_out: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    restaurant: Mapped["Restaurant"] = relationship(
+        "Restaurant", back_populates="menu_items"
     )
 
 

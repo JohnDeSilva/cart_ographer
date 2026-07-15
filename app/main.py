@@ -235,7 +235,6 @@ def read_restaurants(
     is_open_at: Optional[time] = Query(
         None, description="Filter by open at this specific time"
     ),
-    menu_items: Optional[str] = Query(None, description="Filter by menu items"),
     is_approved: Optional[bool] = Query(
         None, description="Filter by approval status (admin only)"
     ),
@@ -259,7 +258,6 @@ def read_restaurants(
         open_status=open_status,
         is_open_at=is_open_at,
         is_approved=effective_approved,
-        menu_items=menu_items,
         skip=skip,
         limit=limit,
     )
@@ -318,20 +316,6 @@ def update_restaurant(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Customers cannot change the restaurant name",
             )
-        if restaurant_update.location is not None and db_restaurant.restaurant_type == models.RestaurantType.BRICK_AND_MORTAR:
-                non_loc_data = restaurant_update.model_dump(exclude={"location"}, exclude_unset=True)
-                crud.update_restaurant(
-                    db=db,
-                    db_restaurant=db_restaurant,
-                    restaurant_update=schemas.RestaurantUpdate(**non_loc_data),
-                )
-                loc_data = restaurant_update.location.model_dump(exclude_unset=True)
-                if "location_type" not in loc_data and db_restaurant.location:
-                    loc_data["location_type"] = db_restaurant.location.location_type
-                return crud.request_location_change(
-                    db=db, db_restaurant=db_restaurant,
-                    new_location=schemas.LocationCreate(**loc_data)
-                )
         if restaurant_update.location is not None:
             crud.update_restaurant_location(
                 db=db, db_restaurant=db_restaurant, location_update=restaurant_update.location
@@ -400,25 +384,6 @@ def approve_restaurant(
     return db_restaurant
 
 
-@app.patch(
-    "/restaurants/{restaurant_id}/approve-location",
-    response_model=schemas.RestaurantResponse,
-)
-def approve_location_change(
-    restaurant_id: int,
-    location_approval: schemas.LocationApproval,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_admin),
-) -> models.Restaurant:
-    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
-    if db_restaurant is None:
-        raise HTTPException(status_code=404, detail="Restaurant not found")
-    if location_approval.approve:
-        return crud.approve_location_change(db=db, db_restaurant=db_restaurant)
-    else:
-        return crud.reject_location_change(db=db, db_restaurant=db_restaurant)
-
-
 @app.delete("/restaurants/{restaurant_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_restaurant(
     restaurant_id: int,
@@ -479,6 +444,118 @@ def read_favorites(
     current_user: models.User = Depends(get_current_consumer),
 ) -> List[models.Favorite]:
     return crud.get_favorites_by_consumer(db=db, consumer_id=current_user.id)
+
+
+# Menu item routes
+@app.post(
+    "/restaurants/{restaurant_id}/menu-items",
+    response_model=schemas.MenuItemResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_menu_item(
+    restaurant_id: int,
+    item: schemas.MenuItemCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> models.MenuItem:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
+    if db_restaurant is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    if current_user.role == models.UserRole.CUSTOMER:
+        if db_restaurant.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not your restaurant")
+    elif current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return crud.create_menu_item(db=db, restaurant_id=restaurant_id, item=item)
+
+
+@app.get(
+    "/restaurants/{restaurant_id}/menu-items",
+    response_model=List[schemas.MenuItemResponse],
+)
+def read_menu_items(
+    restaurant_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> List[models.MenuItem]:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
+    if db_restaurant is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    return crud.get_menu_items(db=db, restaurant_id=restaurant_id)
+
+
+@app.put(
+    "/restaurants/{restaurant_id}/menu-items/{item_id}",
+    response_model=schemas.MenuItemResponse,
+)
+def update_menu_item(
+    restaurant_id: int,
+    item_id: int,
+    item: schemas.MenuItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> models.MenuItem:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
+    if db_restaurant is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    db_item = crud.get_menu_item(db, item_id=item_id)
+    if db_item is None or db_item.restaurant_id != restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    if current_user.role == models.UserRole.CUSTOMER:
+        if db_restaurant.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not your restaurant")
+    elif current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return crud.update_menu_item(db=db, db_item=db_item, item=item)
+
+
+@app.patch(
+    "/restaurants/{restaurant_id}/menu-items/{item_id}/sold-out",
+    response_model=schemas.MenuItemResponse,
+)
+def toggle_sold_out(
+    restaurant_id: int,
+    item_id: int,
+    sold_out: schemas.MenuItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> models.MenuItem:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
+    if db_restaurant is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    db_item = crud.get_menu_item(db, item_id=item_id)
+    if db_item is None or db_item.restaurant_id != restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    if current_user.role == models.UserRole.CUSTOMER:
+        if db_restaurant.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not your restaurant")
+    elif current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return crud.update_menu_item(db=db, db_item=db_item, item=sold_out)
+
+
+@app.delete(
+    "/restaurants/{restaurant_id}/menu-items/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_menu_item(
+    restaurant_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> None:
+    db_restaurant = crud.get_restaurant(db, restaurant_id=restaurant_id)
+    if db_restaurant is None:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    db_item = crud.get_menu_item(db, item_id=item_id)
+    if db_item is None or db_item.restaurant_id != restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+    if current_user.role == models.UserRole.CUSTOMER:
+        if db_restaurant.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not your restaurant")
+    elif current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    crud.delete_menu_item(db=db, db_item=db_item)
 
 
 # Mount static web client files at root if built folder is present

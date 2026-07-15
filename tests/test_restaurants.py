@@ -419,17 +419,14 @@ def test_customer_submit_restaurant(client: TestClient) -> None:
                 "location": dict(LOCATION_DEFAULT, address="Downtown"),
                 "open_time": "10:00:00",
                 "close_time": "22:00:00",
-                "menu_items": "Pad Thai, Curry",
             },
         )
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "Submitted Eats"
         assert data["cuisine_type"] == "Thai"
-        assert data["menu_items"] == "Pad Thai, Curry"
         assert data["is_approved"] is False
         assert data["owner_id"] is not None
-        assert data["location_change_pending"] is False
 
 
 def test_admin_approve_restaurant(client: TestClient) -> None:
@@ -630,7 +627,7 @@ def test_consumer_cannot_update_restaurant(client: TestClient) -> None:
         assert upd.status_code == 403
 
 
-def test_brick_mortar_location_change_approved(client: TestClient) -> None:
+def test_brick_mortar_update_location_direct(client: TestClient) -> None:
     with _no_auth_overrides():
         client.post(
             "/auth/signup",
@@ -668,68 +665,8 @@ def test_brick_mortar_location_change_approved(client: TestClient) -> None:
             json={"location": {"address": "456 New St"}, "description": "Moved"},
         )
         assert upd.status_code == 200
-        assert upd.json()["location"]["formatted"] == "123 Old St, Portland, OR"
-        assert upd.json()["pending_location"]["formatted"] == "456 New St"
-        assert upd.json()["location_change_pending"] is True
+        assert upd.json()["location"]["formatted"] == "456 New St, Portland, OR"
         assert upd.json()["description"] == "Moved"
-
-    resp = client.patch(f"/restaurants/{r_id}/approve-location", json={"approve": True})
-    assert resp.status_code == 200
-    assert resp.json()["location"]["formatted"] == "456 New St"
-    assert resp.json()["pending_location"] is None
-    assert resp.json()["location_change_pending"] is False
-
-
-def test_brick_mortar_location_change_rejected(client: TestClient) -> None:
-    with _no_auth_overrides():
-        client.post(
-            "/auth/signup",
-            json={"username": "bm_rej", "password": "pass", "role": "Customer"},
-        )
-        login = client.post(
-            "/auth/login", json={"username": "bm_rej", "password": "pass"}
-        )
-        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-
-        sub = client.post(
-            "/restaurants/submit",
-            headers=headers,
-            json={
-                "name": "B&M Reject",
-                "restaurant_type": "Brick and mortar Restaurant",
-                "location": dict(LOCATION_DEFAULT, address="111 Old St"),
-                "open_time": "08:00:00",
-                "close_time": "22:00:00",
-            },
-        )
-        r_id = sub.json()["id"]
-
-    client.patch(f"/restaurants/{r_id}/approve", json={"is_approved": True})
-
-    with _no_auth_overrides():
-        login = client.post(
-            "/auth/login", json={"username": "bm_rej", "password": "pass"}
-        )
-        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-
-        client.put(
-            f"/restaurants/{r_id}",
-            headers=headers,
-            json={"location": {"address": "222 New St"}},
-        )
-
-    resp = client.patch(
-        f"/restaurants/{r_id}/approve-location", json={"approve": False}
-    )
-    assert resp.status_code == 200
-    assert resp.json()["location"]["formatted"] == "111 Old St, Portland, OR"
-    assert resp.json()["pending_location"] is None
-    assert resp.json()["location_change_pending"] is False
-
-
-def test_approve_location_change_not_found(client: TestClient) -> None:
-    resp = client.patch("/restaurants/9999/approve-location", json={"approve": True})
-    assert resp.status_code == 404
 
 
 def test_food_truck_update_location_direct(client: TestClient) -> None:
@@ -769,8 +706,6 @@ def test_food_truck_update_location_direct(client: TestClient) -> None:
         )
         assert upd.status_code == 200
         assert upd.json()["location"]["formatted"] == "Corner B, Portland, OR"
-        assert upd.json()["pending_location"] is None
-        assert upd.json()["location_change_pending"] is False
 
 
 def test_food_cart_update_location_direct(client: TestClient) -> None:
@@ -810,8 +745,6 @@ def test_food_cart_update_location_direct(client: TestClient) -> None:
         )
         assert upd.status_code == 200
         assert upd.json()["location"]["formatted"] == "Park B, Portland, OR"
-        assert upd.json()["pending_location"] is None
-        assert upd.json()["location_change_pending"] is False
 
 
 def test_customer_toggle_own_status(client: TestClient) -> None:
@@ -1226,43 +1159,7 @@ def test_get_restaurants_cuisine_filter(client: TestClient) -> None:
     assert len(resp.json()) == 0
 
 
-def test_get_restaurants_menu_items_filter(client: TestClient) -> None:
-    client.post(
-        "/restaurants",
-        json={
-            "name": "Pasta House",
-            "restaurant_type": "Brick and mortar Restaurant",
-            "cuisine_type": "Italian",
-            "location": dict(LOCATION_DEFAULT, address="Main St"),
-            "open_time": "12:00:00",
-            "close_time": "22:00:00",
-            "menu_items": "Spaghetti, Lasagna",
-        },
-    )
-    client.post(
-        "/restaurants",
-        json={
-            "name": "Burger Bar",
-            "restaurant_type": "Food Truck",
-            "cuisine_type": "American",
-            "location": dict(LOCATION_DEFAULT, address="Oak St"),
-            "open_time": "11:00:00",
-            "close_time": "21:00:00",
-            "menu_items": "Burgers, Fries",
-        },
-    )
 
-    resp = client.get("/restaurants?menu_items=Spaghetti")
-    assert resp.status_code == 200
-    assert len(resp.json()) == 1
-    assert resp.json()[0]["name"] == "Pasta House"
-
-    resp = client.get("/restaurants?menu_items=Burger")
-    assert len(resp.json()) == 1
-    assert resp.json()[0]["name"] == "Burger Bar"
-
-    resp = client.get("/restaurants?menu_items=Pizza")
-    assert len(resp.json()) == 0
 
 
 def test_get_restaurants_is_approved_filter_admin(client: TestClient) -> None:
@@ -1473,6 +1370,248 @@ def test_admin_create_restaurant_auto_approved(client: TestClient) -> None:
     )
     assert resp.status_code == 201
     assert resp.json()["is_approved"] is True
+
+
+def test_create_menu_item(client: TestClient) -> None:
+    create_resp = client.post(
+        "/restaurants",
+        json={
+            "name": "Menu Test Restaurant",
+            "restaurant_type": "Food Stall",
+            "location": dict(LOCATION_DEFAULT, address="Menu St"),
+            "open_time": "09:00:00",
+            "close_time": "17:00:00",
+        },
+    )
+    r_id = create_resp.json()["id"]
+
+    item_resp = client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Test Item", "price": 5.99, "description": "A test", "sort_order": 1},
+    )
+    assert item_resp.status_code == 201
+    data = item_resp.json()
+    assert data["name"] == "Test Item"
+    assert data["price"] == 5.99
+    assert data["description"] == "A test"
+    assert data["sort_order"] == 1
+    assert data["is_sold_out"] is False
+    assert data["restaurant_id"] == r_id
+
+
+def test_read_menu_items(client: TestClient) -> None:
+    create_resp = client.post(
+        "/restaurants",
+        json={
+            "name": "Read Menu Restaurant",
+            "restaurant_type": "Food Truck",
+            "location": dict(LOCATION_DEFAULT, address="Read St"),
+            "open_time": "10:00:00",
+            "close_time": "20:00:00",
+        },
+    )
+    r_id = create_resp.json()["id"]
+
+    client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Item A", "price": 3.00, "sort_order": 2},
+    )
+    client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Item B", "price": 4.00, "sort_order": 1},
+    )
+
+    resp = client.get(f"/restaurants/{r_id}/menu-items")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 2
+    assert items[0]["name"] == "Item B"
+    assert items[1]["name"] == "Item A"
+
+    resp_none = client.get("/restaurants/9999/menu-items")
+    assert resp_none.status_code == 404
+
+
+def test_update_menu_item(client: TestClient) -> None:
+    create_resp = client.post(
+        "/restaurants",
+        json={
+            "name": "Update Menu Restaurant",
+            "restaurant_type": "Food Cart",
+            "location": dict(LOCATION_DEFAULT, address="Update St"),
+            "open_time": "08:00:00",
+            "close_time": "16:00:00",
+        },
+    )
+    r_id = create_resp.json()["id"]
+
+    item = client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Original", "price": 2.00},
+    ).json()
+    item_id = item["id"]
+
+    upd = client.put(
+        f"/restaurants/{r_id}/menu-items/{item_id}",
+        json={"name": "Updated", "price": 3.50, "description": "New desc"},
+    )
+    assert upd.status_code == 200
+    assert upd.json()["name"] == "Updated"
+    assert upd.json()["price"] == 3.50
+    assert upd.json()["description"] == "New desc"
+
+    upd_none = client.put(
+        f"/restaurants/{r_id}/menu-items/9999",
+        json={"name": "Ghost"},
+    )
+    assert upd_none.status_code == 404
+
+
+def test_toggle_sold_out(client: TestClient) -> None:
+    create_resp = client.post(
+        "/restaurants",
+        json={
+            "name": "Sold Out Test",
+            "restaurant_type": "Food Stall",
+            "location": dict(LOCATION_DEFAULT, address="Sold St"),
+            "open_time": "09:00:00",
+            "close_time": "17:00:00",
+        },
+    )
+    r_id = create_resp.json()["id"]
+
+    item = client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Toggle Item"},
+    ).json()
+    item_id = item["id"]
+
+    toggle = client.patch(
+        f"/restaurants/{r_id}/menu-items/{item_id}/sold-out",
+        json={"is_sold_out": True},
+    )
+    assert toggle.status_code == 200
+    assert toggle.json()["is_sold_out"] is True
+
+    toggle = client.patch(
+        f"/restaurants/{r_id}/menu-items/{item_id}/sold-out",
+        json={"is_sold_out": False},
+    )
+    assert toggle.status_code == 200
+    assert toggle.json()["is_sold_out"] is False
+
+    toggle_none = client.patch(
+        f"/restaurants/{r_id}/menu-items/9999/sold-out",
+        json={"is_sold_out": True},
+    )
+    assert toggle_none.status_code == 404
+
+
+def test_delete_menu_item(client: TestClient) -> None:
+    create_resp = client.post(
+        "/restaurants",
+        json={
+            "name": "Delete Menu Restaurant",
+            "restaurant_type": "Brick and mortar Restaurant",
+            "location": dict(LOCATION_DEFAULT, address="Delete St"),
+            "open_time": "09:00:00",
+            "close_time": "17:00:00",
+        },
+    )
+    r_id = create_resp.json()["id"]
+
+    item = client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Delete Me"},
+    ).json()
+    item_id = item["id"]
+
+    del_resp = client.delete(f"/restaurants/{r_id}/menu-items/{item_id}")
+    assert del_resp.status_code == 204
+
+    del_resp = client.delete(f"/restaurants/{r_id}/menu-items/{item_id}")
+    assert del_resp.status_code == 404
+
+
+def test_menu_items_in_restaurant_response(client: TestClient) -> None:
+    create_resp = client.post(
+        "/restaurants",
+        json={
+            "name": "Menu In Response",
+            "restaurant_type": "Food Stall",
+            "location": dict(LOCATION_DEFAULT, address="Resp St"),
+            "open_time": "09:00:00",
+            "close_time": "17:00:00",
+        },
+    )
+    r_id = create_resp.json()["id"]
+
+    client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Item 1", "price": 5.00, "sort_order": 1},
+    )
+    client.post(
+        f"/restaurants/{r_id}/menu-items",
+        json={"name": "Item 2", "price": 6.00, "sort_order": 2},
+    )
+
+    resp = client.get(f"/restaurants/{r_id}")
+    assert resp.status_code == 200
+    assert len(resp.json()["menu_items"]) == 2
+    assert resp.json()["menu_items"][0]["name"] == "Item 1"
+
+
+def test_menu_item_wrong_restaurant(client: TestClient) -> None:
+    r1 = client.post(
+        "/restaurants",
+        json={
+            "name": "R1",
+            "restaurant_type": "Food Stall",
+            "location": dict(LOCATION_DEFAULT, address="A St"),
+            "open_time": "09:00:00",
+            "close_time": "17:00:00",
+        },
+    ).json()
+    r2 = client.post(
+        "/restaurants",
+        json={
+            "name": "R2",
+            "restaurant_type": "Food Stall",
+            "location": dict(LOCATION_DEFAULT, address="B St"),
+            "open_time": "09:00:00",
+            "close_time": "17:00:00",
+        },
+    ).json()
+
+    item = client.post(
+        f"/restaurants/{r1['id']}/menu-items",
+        json={"name": "R1 Item"},
+    ).json()
+
+    upd = client.put(
+        f"/restaurants/{r2['id']}/menu-items/{item['id']}",
+        json={"name": "Hacked"},
+    )
+    assert upd.status_code == 404
+
+    toggle = client.patch(
+        f"/restaurants/{r2['id']}/menu-items/{item['id']}/sold-out",
+        json={"is_sold_out": True},
+    )
+    assert toggle.status_code == 404
+
+    delete = client.delete(
+        f"/restaurants/{r2['id']}/menu-items/{item['id']}",
+    )
+    assert delete.status_code == 404
+
+
+def test_create_menu_item_restaurant_not_found(client: TestClient) -> None:
+    resp = client.post(
+        "/restaurants/9999/menu-items",
+        json={"name": "Ghost Item"},
+    )
+    assert resp.status_code == 404
 
 
 def test_food_cart_type(client: TestClient) -> None:

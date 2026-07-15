@@ -51,6 +51,31 @@ export interface LocationUpdatePayload {
   lot_name?: string;
 }
 
+export interface MenuItem {
+  id: number;
+  restaurant_id: number;
+  name: string;
+  description?: string;
+  price?: number;
+  is_sold_out: boolean;
+  sort_order: number;
+}
+
+export interface MenuItemCreate {
+  name: string;
+  description?: string;
+  price?: number;
+  sort_order?: number;
+}
+
+export interface MenuItemUpdate {
+  name?: string;
+  description?: string;
+  price?: number;
+  is_sold_out?: boolean;
+  sort_order?: number;
+}
+
 export interface Restaurant {
   id: number;
   name: string;
@@ -61,11 +86,9 @@ export interface Restaurant {
   close_time: string;
   open_status: boolean;
   description?: string;
-  menu_items?: string;
+  menu_items: MenuItem[];
   is_approved: boolean;
   owner_id?: number;
-  pending_location?: Location;
-  location_change_pending: boolean;
 }
 
 export interface RestaurantCreate {
@@ -77,7 +100,6 @@ export interface RestaurantCreate {
   close_time: string;
   open_status: boolean;
   description?: string;
-  menu_items?: string;
 }
 
 export interface RestaurantSubmit {
@@ -89,7 +111,6 @@ export interface RestaurantSubmit {
   close_time: string;
   open_status: boolean;
   description?: string;
-  menu_items?: string;
 }
 
 export interface RestaurantUpdate {
@@ -101,7 +122,6 @@ export interface RestaurantUpdate {
   close_time?: string;
   open_status?: boolean;
   description?: string;
-  menu_items?: string;
 }
 
 export interface FavoriteResponse {
@@ -239,13 +259,6 @@ class ApiClient {
     });
   }
 
-  approveLocationChange(id: number, approve: boolean): Promise<Restaurant> {
-    return this.request<Restaurant>(`/restaurants/${id}/approve-location`, {
-      method: 'PATCH',
-      body: JSON.stringify({ approve }),
-    });
-  }
-
   addFavorite(restaurantId: number): Promise<FavoriteResponse> {
     return this.request<FavoriteResponse>('/favorites', {
       method: 'POST',
@@ -261,6 +274,37 @@ class ApiClient {
 
   getFavorites(): Promise<FavoriteResponse[]> {
     return this.request<FavoriteResponse[]>('/favorites');
+  }
+
+  createMenuItem(restaurantId: number, item: MenuItemCreate): Promise<MenuItem> {
+    return this.request<MenuItem>(`/restaurants/${restaurantId}/menu-items`, {
+      method: 'POST',
+      body: JSON.stringify(item),
+    });
+  }
+
+  getMenuItems(restaurantId: number): Promise<MenuItem[]> {
+    return this.request<MenuItem[]>(`/restaurants/${restaurantId}/menu-items`);
+  }
+
+  updateMenuItem(restaurantId: number, itemId: number, item: MenuItemUpdate): Promise<MenuItem> {
+    return this.request<MenuItem>(`/restaurants/${restaurantId}/menu-items/${itemId}`, {
+      method: 'PUT',
+      body: JSON.stringify(item),
+    });
+  }
+
+  toggleSoldOut(restaurantId: number, itemId: number, isSoldOut: boolean): Promise<MenuItem> {
+    return this.request<MenuItem>(`/restaurants/${restaurantId}/menu-items/${itemId}/sold-out`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_sold_out: isSoldOut }),
+    });
+  }
+
+  deleteMenuItem(restaurantId: number, itemId: number): Promise<void> {
+    return this.request<void>(`/restaurants/${restaurantId}/menu-items/${itemId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

@@ -8,6 +8,35 @@ use ratatui::{
 use crate::{App, Screen, Focus, api};
 use crate::api::UserRole;
 
+fn menu_item_lines(items: &[api::MenuItem]) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    if items.is_empty() {
+        lines.push(Line::from(Span::styled("  (No menu items)", Style::default().fg(Color::DarkGray))));
+    } else {
+        for item in items {
+            let price_str = match item.price {
+                Some(p) => format!("${:.2}", p),
+                None => "".to_string(),
+            };
+            let status_str = if item.is_sold_out {
+                Span::styled(" [SOLD OUT]", Style::default().fg(Color::Red))
+            } else {
+                Span::styled(" [Available]", Style::default().fg(Color::Green))
+            };
+            let desc_str = match &item.description {
+                Some(d) if !d.is_empty() => format!(" - {}", d),
+                _ => String::new(),
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {}  {}", item.name, price_str), Style::default().fg(Color::White)),
+                status_str,
+                Span::styled(desc_str, Style::default().fg(Color::Gray)),
+            ]));
+        }
+    }
+    lines
+}
+
 fn location_detail_lines(loc: &api::Location) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     lines.push(Line::from(vec![
@@ -127,7 +156,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Screen::ResetPassword => "[Tab] Switch Field  [Enter] Reset Password  [Esc] Back to Login",
         Screen::Dashboard => {
             if app.api_client.role == Some(UserRole::Admin) {
-                "[Tab] Switch Focus  [Up/Down] Navigate  [S] Search  [A] Add  [E] Edit  [T] Toggle  [D] Delete  [R] Approve  [L] Approve Loc  [Shift+L] Reject Loc  [Ctrl+L] Logout"
+                "[Tab] Switch Focus  [Up/Down] Navigate  [S] Search  [A] Add  [E] Edit  [T] Toggle  [D] Delete  [R] Approve  [Ctrl+L] Logout"
             } else if app.api_client.role == Some(UserRole::Customer) {
                 "[Tab] Switch Focus  [Up/Down] Navigate  [S] Search  [M] My Restaurants  [Ctrl+L] Logout"
             } else {
@@ -141,7 +170,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             "[Tab] Switch Focus  [Up/Down] Navigate  [D] Remove Favorite  [Ctrl+L] Logout  [Esc] Back"
         }
         Screen::AddRestaurant | Screen::EditRestaurant => {
-            "[Tab] Switch Field  [Space] Cycle/Insert Space  [Enter] Save  [Esc] Cancel"
+            "[Tab] Switch Field  [Space] Cycle  [Enter] Save/Add Item  [A] Add Item  [T] Toggle Sold-out  [D] Delete Item  [Esc] Cancel"
         }
     };
 
@@ -447,7 +476,6 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
             };
 
             let desc = r.description.clone().unwrap_or_else(|| "No description provided.".to_string());
-            let menu = r.menu_items.clone().unwrap_or_else(|| "None listed".to_string());
 
             let mut detail_text = vec![
                 Line::from(""),
@@ -480,27 +508,13 @@ fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
                 Line::from(Span::styled(desc, Style::default().fg(Color::Gray))),
                 Line::from(""),
                 Line::from(Span::styled(" Menu Items:", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan))),
-                Line::from(Span::styled(menu, Style::default().fg(Color::Gray))),
             ];
+            detail_text.extend(menu_item_lines(&r.menu_items));
 
             let loc_lines = location_detail_lines(&r.location);
             let insert_at = detail_text.len() - 6;
             for (i, l) in loc_lines.into_iter().enumerate() {
                 detail_text.insert(insert_at + i, l);
-            }
-
-            if r.location_change_pending {
-                if let Some(ref ploc) = r.pending_location {
-                    detail_text.push(Line::from(""));
-                    detail_text.push(Line::from(vec![
-                        Span::styled(" Location Change Pending: ", Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)),
-                        Span::styled(ploc.formatted.clone(), Style::default().fg(Color::White)),
-                    ]));
-                    let mut pend_lines = location_detail_lines(ploc);
-                    for l in pend_lines.drain(..) {
-                        detail_text.push(l);
-                    }
-                }
             }
 
             let details_para = Paragraph::new(detail_text)
@@ -599,7 +613,6 @@ fn draw_my_restaurants_screen(f: &mut Frame, app: &App, area: Rect) {
             };
 
             let desc = r.description.clone().unwrap_or_else(|| "No description provided.".to_string());
-            let menu = r.menu_items.clone().unwrap_or_else(|| "None listed".to_string());
 
             let mut detail_text = vec![
                 Line::from(""),
@@ -632,27 +645,13 @@ fn draw_my_restaurants_screen(f: &mut Frame, app: &App, area: Rect) {
                 Line::from(Span::styled(desc, Style::default().fg(Color::Gray))),
                 Line::from(""),
                 Line::from(Span::styled(" Menu Items:", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan))),
-                Line::from(Span::styled(menu, Style::default().fg(Color::Gray))),
             ];
+            detail_text.extend(menu_item_lines(&r.menu_items));
 
             let loc_lines = location_detail_lines(&r.location);
             let insert_at = 4;
             for (i, l) in loc_lines.into_iter().enumerate() {
                 detail_text.insert(insert_at + i, l);
-            }
-
-            if r.location_change_pending {
-                if let Some(ref ploc) = r.pending_location {
-                    detail_text.push(Line::from(""));
-                    detail_text.push(Line::from(vec![
-                        Span::styled(" Location Change Pending: ", Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)),
-                        Span::styled(ploc.formatted.clone(), Style::default().fg(Color::White)),
-                    ]));
-                    let mut pend_lines = location_detail_lines(ploc);
-                    for l in pend_lines.drain(..) {
-                        detail_text.push(l);
-                    }
-                }
             }
 
             let details_para = Paragraph::new(detail_text)
@@ -738,7 +737,6 @@ fn draw_favorites_screen(f: &mut Frame, app: &App, area: Rect) {
                 };
 
                 let desc = r.description.clone().unwrap_or_else(|| "No description provided.".to_string());
-                let menu = r.menu_items.clone().unwrap_or_else(|| "None listed".to_string());
 
                 let mut detail_text = vec![
                     Line::from(""),
@@ -767,8 +765,8 @@ fn draw_favorites_screen(f: &mut Frame, app: &App, area: Rect) {
                     Line::from(Span::styled(desc, Style::default().fg(Color::Gray))),
                     Line::from(""),
                     Line::from(Span::styled(" Menu Items:", Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan))),
-                    Line::from(Span::styled(menu, Style::default().fg(Color::Gray))),
                 ];
+                detail_text.extend(menu_item_lines(&r.menu_items));
                 let loc_lines = location_detail_lines(&r.location);
                 let insert_at = 4;
                 for (i, l) in loc_lines.into_iter().enumerate() {
@@ -796,8 +794,15 @@ fn draw_favorites_screen(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+fn input_field(label: &str, value: &str, focus: bool, area: Rect, f: &mut Frame) {
+    let style = if focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let block = Block::default().borders(Borders::ALL).title(label).border_style(style);
+    let para = Paragraph::new(value).block(block);
+    f.render_widget(para, area);
+}
+
 fn draw_form_screen(f: &mut Frame, app: &App, area: Rect) {
-    let block_area = centered_rect(65, 90, area);
+    let block_area = centered_rect(85, 90, area);
     let title = match app.screen {
         Screen::AddRestaurant => " ADD RESTAURANT ",
         Screen::EditRestaurant => " EDIT RESTAURANT ",
@@ -813,8 +818,9 @@ fn draw_form_screen(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Clear, block_area);
     f.render_widget(block, block_area);
 
-    let inner_area = block_area.inner(ratatui::layout::Margin { horizontal: 2, vertical: 2 });
-    let chunks = Layout::default()
+    let inner_area = block_area.inner(ratatui::layout::Margin { horizontal: 1, vertical: 1 });
+
+    let vert = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
@@ -826,136 +832,89 @@ fn draw_form_screen(f: &mut Frame, app: &App, area: Rect) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Min(4),
             Constraint::Length(2),
         ])
         .split(inner_area);
 
-    let name_style = if let Focus::FormName = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let name_block = Block::default().borders(Borders::ALL).title(" Name ").border_style(name_style);
-    let name_para = Paragraph::new(app.form_name.clone()).block(name_block);
-    f.render_widget(name_para, chunks[0]);
+    input_field(" Name ", &app.form_name, app.focus == Focus::FormName, vert[0], f);
 
-    let type_style = if let Focus::FormType = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let type_block = Block::default().borders(Borders::ALL).title(" Type (Press [Space] to toggle) ").border_style(type_style);
-    let type_para = Paragraph::new(app.form_type.as_str()).block(type_block);
-    f.render_widget(type_para, chunks[1]);
+    // Row: Type + Cuisine
+    let r1 = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(30), Constraint::Percentage(70)]).split(vert[1]);
+    input_field(" Type [Space] ", app.form_type.as_str(), app.focus == Focus::FormType, r1[0], f);
+    input_field(" Cuisine Type ", &app.form_cuisine_type, app.focus == Focus::FormCuisineType, r1[1], f);
 
-    let cuisine_style = if let Focus::FormCuisineType = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let cuisine_block = Block::default().borders(Borders::ALL).title(" Cuisine Type ").border_style(cuisine_style);
-    let cuisine_para = Paragraph::new(app.form_cuisine_type.clone()).block(cuisine_block);
-    f.render_widget(cuisine_para, chunks[2]);
+    // Row: Location free-form + Location Description
+    let r2 = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(50), Constraint::Percentage(50)]).split(vert[2]);
+    input_field(" Location (free-form) ", &app.form_location, app.focus == Focus::FormLocation, r2[0], f);
+    input_field(" Location Description ", &app.form_location_desc, app.focus == Focus::FormLocationDesc, r2[1], f);
 
-    let loc_style = if let Focus::FormLocation = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_block = Block::default().borders(Borders::ALL).title(" Location (free-form) ").border_style(loc_style);
-    let loc_para = Paragraph::new(app.form_location.clone()).block(loc_block);
-    f.render_widget(loc_para, chunks[3]);
+    // Row: Lat + Lng + Address
+    let r3 = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(15), Constraint::Percentage(15), Constraint::Percentage(70)]).split(vert[3]);
+    input_field(" Lat ", &app.form_location_lat, app.focus == Focus::FormLocationLat, r3[0], f);
+    input_field(" Lng ", &app.form_location_lng, app.focus == Focus::FormLocationLng, r3[1], f);
+    input_field(" Street Address ", &app.form_location_address, app.focus == Focus::FormLocationAddress, r3[2], f);
 
-    let loc_desc_style = if let Focus::FormLocationDesc = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_desc_block = Block::default().borders(Borders::ALL).title(" Location Description ").border_style(loc_desc_style);
-    let loc_desc_para = Paragraph::new(app.form_location_desc.clone()).block(loc_desc_block);
-    f.render_widget(loc_desc_para, chunks[4]);
+    // Row: City + State + ZIP + Road1 + Road2
+    let r4 = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(25), Constraint::Percentage(12), Constraint::Percentage(15), Constraint::Percentage(24), Constraint::Percentage(24)]).split(vert[4]);
+    input_field(" City ", &app.form_location_city, app.focus == Focus::FormLocationCity, r4[0], f);
+    input_field(" State ", &app.form_location_state, app.focus == Focus::FormLocationState, r4[1], f);
+    input_field(" ZIP ", &app.form_location_zip, app.focus == Focus::FormLocationZip, r4[2], f);
+    input_field(" Road 1 ", &app.form_location_road1, app.focus == Focus::FormLocationRoad1, r4[3], f);
+    input_field(" Road 2 ", &app.form_location_road2, app.focus == Focus::FormLocationRoad2, r4[4], f);
 
-    let loc_lat_style = if let Focus::FormLocationLat = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_lat_block = Block::default().borders(Borders::ALL).title(" Latitude ").border_style(loc_lat_style);
-    let loc_lat_para = Paragraph::new(app.form_location_lat.clone()).block(loc_lat_block);
-    f.render_widget(loc_lat_para, chunks[5]);
+    // Row: Venue + Stall + Lot + Open + Close
+    let r5 = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(22), Constraint::Percentage(18), Constraint::Percentage(18), Constraint::Percentage(21), Constraint::Percentage(21)]).split(vert[5]);
+    input_field(" Venue ", &app.form_location_venue, app.focus == Focus::FormLocationVenue, r5[0], f);
+    input_field(" Stall ", &app.form_location_stall, app.focus == Focus::FormLocationStall, r5[1], f);
+    input_field(" Lot ", &app.form_location_lot, app.focus == Focus::FormLocationLot, r5[2], f);
+    input_field(" Open (HH:MM:SS) ", &app.form_open_time, app.focus == Focus::FormOpenTime, r5[3], f);
+    input_field(" Close (HH:MM:SS) ", &app.form_close_time, app.focus == Focus::FormCloseTime, r5[4], f);
 
-    let loc_lng_style = if let Focus::FormLocationLng = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_lng_block = Block::default().borders(Borders::ALL).title(" Longitude ").border_style(loc_lng_style);
-    let loc_lng_para = Paragraph::new(app.form_location_lng.clone()).block(loc_lng_block);
-    f.render_widget(loc_lng_para, chunks[6]);
+    // Row: Status + Description
+    let r6 = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(14), Constraint::Min(20)]).split(vert[6]);
+    input_field(" Status [Space] ", if app.form_open_status { "Open" } else { "Closed" }, app.focus == Focus::FormOpenStatus, r6[0], f);
+    input_field(" Description ", &app.form_description, app.focus == Focus::FormDescription, r6[1], f);
 
-    let loc_addr_style = if let Focus::FormLocationAddress = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_addr_block = Block::default().borders(Borders::ALL).title(" Street Address ").border_style(loc_addr_style);
-    let loc_addr_para = Paragraph::new(app.form_location_address.clone()).block(loc_addr_block);
-    f.render_widget(loc_addr_para, chunks[7]);
+    // Row: Menu item name + price + description
+    let r7 = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(35), Constraint::Percentage(15), Constraint::Percentage(50)]).split(vert[7]);
+    input_field(" Menu Item Name (Enter/[A] add) ", &app.form_menu_item_name, app.focus == Focus::FormMenuItemName, r7[0], f);
+    input_field(" Price ", &app.form_menu_item_price, app.focus == Focus::FormMenuItemPrice, r7[1], f);
+    input_field(" Menu Item Description ", &app.form_menu_item_description, app.focus == Focus::FormMenuItemDescription, r7[2], f);
 
-    let loc_city_style = if let Focus::FormLocationCity = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_city_block = Block::default().borders(Borders::ALL).title(" City ").border_style(loc_city_style);
-    let loc_city_para = Paragraph::new(app.form_location_city.clone()).block(loc_city_block);
-    f.render_widget(loc_city_para, chunks[8]);
-
-    let loc_state_style = if let Focus::FormLocationState = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_state_block = Block::default().borders(Borders::ALL).title(" State ").border_style(loc_state_style);
-    let loc_state_para = Paragraph::new(app.form_location_state.clone()).block(loc_state_block);
-    f.render_widget(loc_state_para, chunks[9]);
-
-    let loc_zip_style = if let Focus::FormLocationZip = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_zip_block = Block::default().borders(Borders::ALL).title(" ZIP Code ").border_style(loc_zip_style);
-    let loc_zip_para = Paragraph::new(app.form_location_zip.clone()).block(loc_zip_block);
-    f.render_widget(loc_zip_para, chunks[10]);
-
-    let loc_r1_style = if let Focus::FormLocationRoad1 = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_r1_block = Block::default().borders(Borders::ALL).title(" Intersection Road 1 ").border_style(loc_r1_style);
-    let loc_r1_para = Paragraph::new(app.form_location_road1.clone()).block(loc_r1_block);
-    f.render_widget(loc_r1_para, chunks[11]);
-
-    let loc_r2_style = if let Focus::FormLocationRoad2 = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_r2_block = Block::default().borders(Borders::ALL).title(" Intersection Road 2 ").border_style(loc_r2_style);
-    let loc_r2_para = Paragraph::new(app.form_location_road2.clone()).block(loc_r2_block);
-    f.render_widget(loc_r2_para, chunks[12]);
-
-    let loc_ven_style = if let Focus::FormLocationVenue = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_ven_block = Block::default().borders(Borders::ALL).title(" Venue / Mall Name ").border_style(loc_ven_style);
-    let loc_ven_para = Paragraph::new(app.form_location_venue.clone()).block(loc_ven_block);
-    f.render_widget(loc_ven_para, chunks[13]);
-
-    let loc_stall_style = if let Focus::FormLocationStall = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_stall_block = Block::default().borders(Borders::ALL).title(" Stall / Cart Number ").border_style(loc_stall_style);
-    let loc_stall_para = Paragraph::new(app.form_location_stall.clone()).block(loc_stall_block);
-    f.render_widget(loc_stall_para, chunks[14]);
-
-    let loc_lot_style = if let Focus::FormLocationLot = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let loc_lot_block = Block::default().borders(Borders::ALL).title(" Parking Lot Name ").border_style(loc_lot_style);
-    let loc_lot_para = Paragraph::new(app.form_location_lot.clone()).block(loc_lot_block);
-    f.render_widget(loc_lot_para, chunks[15]);
-
-    let time_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
-        .split(chunks[16]);
-
-    let open_style = if let Focus::FormOpenTime = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let open_block = Block::default().borders(Borders::ALL).title(" Open Time (HH:MM:SS) ").border_style(open_style);
-    let open_para = Paragraph::new(app.form_open_time.clone()).block(open_block);
-    f.render_widget(open_para, time_chunks[0]);
-
-    let close_style = if let Focus::FormCloseTime = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let close_block = Block::default().borders(Borders::ALL).title(" Close Time (HH:MM:SS) ").border_style(close_style);
-    let close_para = Paragraph::new(app.form_close_time.clone()).block(close_block);
-    f.render_widget(close_para, time_chunks[1]);
-
-    let status_style = if let Focus::FormOpenStatus = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let status_block = Block::default().borders(Borders::ALL).title(" Status (Press [Space] to toggle) ").border_style(status_style);
-    let status_text = if app.form_open_status { "Open" } else { "Closed" };
-    let status_para = Paragraph::new(status_text).block(status_block);
-    f.render_widget(status_para, chunks[17]);
-
-    let desc_style = if let Focus::FormDescription = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let desc_block = Block::default().borders(Borders::ALL).title(" Description ").border_style(desc_style);
-    let desc_para = Paragraph::new(app.form_description.clone()).block(desc_block);
-    f.render_widget(desc_para, chunks[18]);
-
-    let menu_style = if let Focus::FormMenuItems = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
-    let menu_block = Block::default().borders(Borders::ALL).title(" Menu Items ").border_style(menu_style);
-    let menu_para = Paragraph::new(app.form_menu_items.clone()).block(menu_block);
-    f.render_widget(menu_para, chunks[19]);
+    // Menu Items list
+    let menu_list_style = if let Focus::FormMenuList = app.focus { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Gray) };
+    let mut mi_list_lines = vec![
+        Line::from(Span::styled("  [A]dd  [T]oggle Sold-out  [D]elete  [Up/Down] Select", Style::default().fg(Color::Gray))),
+    ];
+    if app.form_menu_items.is_empty() {
+        mi_list_lines.push(Line::from(Span::styled("  No menu items added yet.", Style::default().fg(Color::DarkGray))));
+    } else {
+        for (i, item) in app.form_menu_items.iter().enumerate() {
+            let selected = app.form_menu_item_selected == Some(i);
+            let prefix = if selected { " >" } else { "  " };
+            let price_str = match item.price {
+                Some(p) => format!(" ${:.2}", p),
+                None => "".to_string(),
+            };
+            let status_str = if item.is_sold_out { " [SOLD OUT]" } else { "" };
+            let style = if selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            mi_list_lines.push(Line::from(Span::styled(
+                format!("{}{}{}{}", prefix, item.name, price_str, status_str),
+                style,
+            )));
+        }
+    }
+    let mi_list_block = Block::default().borders(Borders::ALL).title(" Menu Items ").border_style(menu_list_style);
+    let mi_list_para = Paragraph::new(mi_list_lines).block(mi_list_block);
+    f.render_widget(mi_list_para, vert[8]);
 
     let action_para = Paragraph::new("Press [Enter] to submit  -  [Esc] to discard changes")
         .alignment(ratatui::layout::Alignment::Center)
         .fg(Color::DarkGray);
-    f.render_widget(action_para, chunks[20]);
+    f.render_widget(action_para, vert[9]);
 }

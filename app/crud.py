@@ -111,6 +111,45 @@ def get_restaurant(db: Session, restaurant_id: int) -> Optional[models.Restauran
     )
 
 
+def get_menu_items(db: Session, restaurant_id: int) -> List[models.MenuItem]:
+    return (
+        db.query(models.MenuItem)
+        .filter(models.MenuItem.restaurant_id == restaurant_id)
+        .order_by(models.MenuItem.sort_order)
+        .all()
+    )
+
+
+def create_menu_item(
+    db: Session, restaurant_id: int, item: schemas.MenuItemCreate
+) -> models.MenuItem:
+    db_item = models.MenuItem(restaurant_id=restaurant_id, **item.model_dump())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+def update_menu_item(
+    db: Session, db_item: models.MenuItem, item: schemas.MenuItemUpdate
+) -> models.MenuItem:
+    update_data = item.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_item, key, value)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+def delete_menu_item(db: Session, db_item: models.MenuItem) -> None:
+    db.delete(db_item)
+    db.commit()
+
+
+def get_menu_item(db: Session, item_id: int) -> Optional[models.MenuItem]:
+    return db.query(models.MenuItem).filter(models.MenuItem.id == item_id).first()
+
+
 def get_restaurants(
     db: Session,
     name: Optional[str] = None,
@@ -121,7 +160,6 @@ def get_restaurants(
     open_status: Optional[bool] = None,
     is_open_at: Optional[time] = None,
     is_approved: Optional[bool] = None,
-    menu_items: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
 ) -> List[models.Restaurant]:
@@ -140,8 +178,6 @@ def get_restaurants(
         query = query.filter(models.Restaurant.open_status == open_status)
     if is_approved is not None:
         query = query.filter(models.Restaurant.is_approved == is_approved)
-    if menu_items:
-        query = query.filter(models.Restaurant.menu_items.ilike(f"%{menu_items}%"))
     if is_open_at:
         query = query.filter(
             or_(
@@ -244,69 +280,9 @@ def update_restaurant_location(
     return _update_location_in_place(db, db_restaurant.location, location_update)
 
 
-def request_location_change(
-    db: Session, db_restaurant: models.Restaurant, new_location: schemas.LocationCreate
-) -> models.Restaurant:
-    db_location = _create_location(db, new_location)
-    db_restaurant.pending_location_id = db_location.id
-    db_restaurant.location_change_pending = True
-    db.commit()
-    db.refresh(db_restaurant)
-    logger.info(
-        "Location change requested for restaurant id=%d: pending_location_id=%d",
-        db_restaurant.id,
-        db_location.id,
-    )
-    return db_restaurant
-
-
-def approve_location_change(
-    db: Session, db_restaurant: models.Restaurant
-) -> models.Restaurant:
-    if db_restaurant.pending_location_id and db_restaurant.location:
-        old_location_id = db_restaurant.location_id
-        db_restaurant.location_id = db_restaurant.pending_location_id
-        db_restaurant.pending_location_id = None
-        db_restaurant.location_change_pending = False
-        db.flush()
-        old_location = db.get(models.Location, old_location_id)
-        if old_location:
-            db.delete(old_location)
-    else:
-        db_restaurant.pending_location_id = None
-        db_restaurant.location_change_pending = False
-    db.commit()
-    db.refresh(db_restaurant)
-    logger.info(
-        "Location change approved for restaurant id=%d",
-        db_restaurant.id,
-    )
-    return db_restaurant
-
-
-def reject_location_change(
-    db: Session, db_restaurant: models.Restaurant
-) -> models.Restaurant:
-    if db_restaurant.pending_location_id:
-        pending = db.get(models.Location, db_restaurant.pending_location_id)
-        if pending:
-            db.delete(pending)
-    db_restaurant.pending_location_id = None
-    db_restaurant.location_change_pending = False
-    db.commit()
-    db.refresh(db_restaurant)
-    logger.info(
-        "Location change rejected for restaurant id=%d",
-        db_restaurant.id,
-    )
-    return db_restaurant
-
-
 def delete_restaurant(db: Session, db_restaurant: models.Restaurant) -> None:
     if db_restaurant.location:
         db.delete(db_restaurant.location)
-    if db_restaurant.pending_location:
-        db.delete(db_restaurant.pending_location)
     db.delete(db_restaurant)
     db.commit()
     logger.info("Restaurant id=%d deleted from the database", db_restaurant.id)

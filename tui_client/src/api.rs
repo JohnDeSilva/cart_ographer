@@ -116,11 +116,9 @@ pub struct Restaurant {
     pub close_time: String,
     pub open_status: bool,
     pub description: Option<String>,
-    pub menu_items: Option<String>,
     pub is_approved: bool,
     pub owner_id: Option<i32>,
-    pub pending_location: Option<Location>,
-    pub location_change_pending: bool,
+    pub menu_items: Vec<MenuItem>,
 }
 
 #[derive(Debug, Serialize)]
@@ -133,7 +131,6 @@ pub struct RestaurantCreate {
     pub close_time: String,
     pub open_status: bool,
     pub description: Option<String>,
-    pub menu_items: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,7 +143,6 @@ pub struct RestaurantUpdate {
     pub close_time: Option<String>,
     pub open_status: Option<bool>,
     pub description: Option<String>,
-    pub menu_items: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -160,8 +156,31 @@ pub struct RestaurantApproval {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LocationApproval {
-    pub approve: bool,
+pub struct MenuItem {
+    pub id: i64,
+    pub restaurant_id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub price: Option<f64>,
+    pub is_sold_out: bool,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MenuItemCreate {
+    pub name: String,
+    pub description: Option<String>,
+    pub price: Option<f64>,
+    pub sort_order: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MenuItemUpdate {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub price: Option<f64>,
+    pub is_sold_out: Option<bool>,
+    pub sort_order: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -468,23 +487,6 @@ impl ApiClient {
         }
     }
 
-    pub async fn approve_location_change(&self, id: i32, approve: bool) -> Result<Restaurant, ApiError> {
-        let url = format!("{}/restaurants/{}/approve-location", self.base_url, id);
-        let payload = LocationApproval { approve };
-        let response = self.client.patch(&url)
-            .headers(self.headers())
-            .json(&payload)
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            Ok(response.json().await?)
-        } else {
-            response.error_for_status()?;
-            Err(ApiError::Network)
-        }
-    }
-
     pub async fn add_favorite(&self, restaurant_id: i32) -> Result<FavoriteResponse, ApiError> {
         let url = format!("{}/favorites", self.base_url);
         let payload = FavoriteCreate { restaurant_id };
@@ -521,6 +523,85 @@ impl ApiClient {
         let url = format!("{}/favorites", self.base_url);
         let response = self.client.get(&url)
             .headers(self.headers())
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            Ok(response.json().await?)
+        } else {
+            response.error_for_status()?;
+            Err(ApiError::Network)
+        }
+    }
+
+    pub async fn create_menu_item(&self, restaurant_id: i32, item: &MenuItemCreate) -> Result<MenuItem, ApiError> {
+        let url = format!("{}/restaurants/{}/menu-items", self.base_url, restaurant_id);
+        let response = self.client.post(&url)
+            .headers(self.headers())
+            .json(item)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            Ok(response.json().await?)
+        } else {
+            response.error_for_status()?;
+            Err(ApiError::Network)
+        }
+    }
+
+    pub async fn get_menu_items(&self, restaurant_id: i32) -> Result<Vec<MenuItem>, ApiError> {
+        let url = format!("{}/restaurants/{}/menu-items", self.base_url, restaurant_id);
+        let response = self.client.get(&url)
+            .headers(self.headers())
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            Ok(response.json().await?)
+        } else {
+            response.error_for_status()?;
+            Err(ApiError::Network)
+        }
+    }
+
+    pub async fn update_menu_item(&self, restaurant_id: i32, item_id: i64, item: &MenuItemUpdate) -> Result<MenuItem, ApiError> {
+        let url = format!("{}/restaurants/{}/menu-items/{}", self.base_url, restaurant_id, item_id);
+        let response = self.client.put(&url)
+            .headers(self.headers())
+            .json(item)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            Ok(response.json().await?)
+        } else {
+            response.error_for_status()?;
+            Err(ApiError::Network)
+        }
+    }
+
+    pub async fn delete_menu_item(&self, restaurant_id: i32, item_id: i64) -> Result<(), ApiError> {
+        let url = format!("{}/restaurants/{}/menu-items/{}", self.base_url, restaurant_id, item_id);
+        let response = self.client.delete(&url)
+            .headers(self.headers())
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            response.error_for_status()?;
+            Err(ApiError::Network)
+        }
+    }
+
+    pub async fn toggle_sold_out(&self, restaurant_id: i32, item_id: i64, is_sold_out: bool) -> Result<MenuItem, ApiError> {
+        let url = format!("{}/restaurants/{}/menu-items/{}/sold-out", self.base_url, restaurant_id, item_id);
+        let payload = serde_json::json!({ "is_sold_out": is_sold_out });
+        let response = self.client.patch(&url)
+            .headers(self.headers())
+            .json(&payload)
             .send()
             .await?;
 
